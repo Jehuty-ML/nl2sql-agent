@@ -29,14 +29,39 @@ def export_markdown(title: str, content: str, filename: str = "") -> str:
     )
 
 
+def format_cell_value(key: str, value: Any) -> str:
+    """表格单元格展示：比率转百分比，控制浮点精度。"""
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "是" if value else "否"
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        kl = str(key).lower()
+        num = float(value)
+        if kl.endswith("_rate") or kl.endswith("_pct") or kl.endswith("_ratio"):
+            if 0 <= num <= 1:
+                return f"{num * 100:.2f}%"
+            return f"{num:.2f}%"
+        if isinstance(value, float) and not num.is_integer():
+            return f"{num:.4g}"
+        if isinstance(value, float) and num.is_integer():
+            return str(int(num))
+        return str(value)
+    text = str(value).replace("|", "\\|").replace("\n", " ")
+    return text
+
+
 def rows_to_markdown_table(columns: list[str], rows: list[dict[str, Any]]) -> str:
-    if not columns:
+    cols = list(columns) if columns else (list(rows[0].keys()) if rows else [])
+    if not cols:
         return "_空结果_"
-    header = "| " + " | ".join(columns) + " |"
-    sep = "| " + " | ".join(["---"] * len(columns)) + " |"
+    header = "| " + " | ".join(cols) + " |"
+    sep = "| " + " | ".join(["---"] * len(cols)) + " |"
     lines = [header, sep]
     for r in rows[:50]:
-        lines.append("| " + " | ".join(str(r.get(c, "")) for c in columns) + " |")
+        lines.append(
+            "| " + " | ".join(format_cell_value(c, r.get(c, "")) for c in cols) + " |"
+        )
     return "\n".join(lines)
 
 

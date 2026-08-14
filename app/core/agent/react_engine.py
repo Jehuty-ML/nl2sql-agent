@@ -82,7 +82,7 @@ TOOL_SCHEMAS = [
     },
 ]
 
-SYSTEM_PROMPT = """你是 LumenLearn 学习社区的数据分析智能体。
+SYSTEM_PROMPT = """你是 LumenLearn 学习社区的数据分析智能体（约定 ReAct Agent 路径）。
 只能使用工具查询 ClickHouse（events/users），禁止编造数字。
 标准指标优先调用 get_fixed_analysis；需要下钻时再用 db_query。
 Demo 数据业务日仅在 2026-05-04 ~ 2026-08-01。调用 get_fixed_analysis 时**默认不要传 start_date/end_date**（省略即用该窗口）；禁止臆造 2024/2025 日期。
@@ -91,21 +91,99 @@ Demo 数据业务日仅在 2026-05-04 ~ 2026-08-01。调用 get_fixed_analysis �
 - events: distinct_id, identity_login_id, event, dt, app_id, lib, path_id, lesson_id, register_channel, …
 渠道字段是 register_channel（不是 channel）。工具若返回 ok=false，请根据 error/hint 改写 SQL 再查，不要直接放弃。
 口径：DAU=屏浏览且登录 ID 非空；留存=SignUp cohort + 次日/七日屏浏览；漏斗=浏览路径→开课→完课→交练习。
-最终用中文简要解读，并引用工具返回的数值。若用户问「如何提高留存」，先用 get_fixed_analysis(key=retention) 拿到现状，再结合漏斗/渠道数据给可执行建议。
+
+【交付格式 · 仅本 Agent 路径】
+最终回复用 Markdown，三段式（与 内部参考实现 conclusion / supporting_data / strategy_advice 同构）：
+1. `### …核心结论：` — 关键指标与判断；数字必须来自工具；不足则写 `【数据限制】`。
+2. `### 支撑数据` — Markdown 表格 + 必要时一两句口径。
+3. `### 运营策略建议` — 仅在有数据特征可绑定时写；禁止空话；证据不足则明确写不足以给建议并说明缺什么。
+（注意：用户若走 /dau 等 slash，系统不会进本 Agent，也不会生成建议——那是固定 SQL 报表通道。）
 """
 
 
+def _clip(text: str, n: int = 280) -> str:
+    s = " ".join(str(text or "").split())
+    if len(s) <= n:
+        return s
+    return s[: n - 1] + "…"
+
+
+def _tool_step_title(fn: str, args: dict[str, Any]) -> str:
+    if fn == "get_fixed_analysis":
+        key = args.get("key") or "?"
+        return f"调用工具 · 固定分析 ({key})"
+    if fn == "db_query":
+        return "调用工具 · 动态 SQL"
+    if fn == "export_report":
+        return "调用工具 · 导出报告"
+    return f"调用工具 · {fn}"
+
+
+def _fmt_tool_args(fn: str, args: dict[str, Any]) -> str:
+    if fn == "get_fixed_analysis":
+        parts = [f"key={args.get('key')}"]
+        if args.get("start_date") or args.get("end_date"):
+            parts.append(f"range={args.get('start_date')}~{args.get('end_date')}")
+        return "参数: " + " ".join(parts)
+    if fn == "db_query":
+        sql = str(args.get("sql") or "").strip()
+        return "SQL: " + _clip(sql, 360)
+    if fn == "export_report":
+        return f"title={args.get('title') or '分析报告'}"
+    try:
+        return _clip(json.dumps(args, ensure_ascii=False), 360)
+    except Exception:
+        return _clip(str(args), 360)
+
+
+def _observe_summary(result: str) -> str:
+    try:
+        payload = json.loads(result)
+    except (json.JSONDecodeError, TypeError):
+        return "观察: " + _clip(result, 320)
+    if not isinstance(payload, dict):
+        return "观察: " + _clip(str(payload), 320)
+    if not payload.get("ok", True) and payload.get("ok") is not None:
+        err = payload.get("error") or payload.get("hint") or "失败"
+        return "观察失败: " + _clip(str(err), 320)
+    rows = payload.get("rows")
+    if isinstance(rows, list):
+        n = payload.get("row_count", len(rows))
+        name = payload.get("name") or payload.get("analysis_key") or ""
+        head = f"观察成功: {n} 行"
+        if name:
+            head += f"（{name}）"
+        if rows:
+            head += " · 首行 " + _clip(json.dumps(rows[0], ensure_ascii=False), 220)
+        return head
+    if payload.get("path"):
+        return "观察成功: 已导出 " + _clip(str(payload.get("path")), 240)
+    return "观察: " + _clip(json.dumps(payload, ensure_ascii=False), 320)
+
+
+def _extract_last_table(tool_traces: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """从最近一次成功工具结果里抽出 rows，供前端表格渲染。"""
+    for trace in reversed(tool_traces):
+        table = trace.get("table")
+        if isinstance(table, dict) and table.get("rows"):
+            return table
+    return None
+
+
 def _format_answer(payload: dict[str, Any]) -> str:
-    name = payload.get("name") or payload.get("analysis_key")
+    """固定分析 slash：约定 — 仅报表头 + 数据；无运营建议。
+
+    明细表由前端用 data.rows 渲染（中文列名）；此处不重复塞 Markdown 表。
+    """
+    name = payload.get("name") or payload.get("analysis_key") or "固定分析"
     rows = payload.get("rows") or []
     lines = [
-        f"已完成固定分析：**{name}**",
-        f"区间：{payload.get('start_date')} ~ {payload.get('end_date')}",
-        f"结果行数：{payload.get('row_count', len(rows))}",
+        f"## {name}",
+        "- 数据源：clickhouse",
+        f"- 时间范围：{payload.get('start_date')} 至 {payload.get('end_date')}",
     ]
-    if rows:
-        lines.append("首行预览：" + json.dumps(rows[0], ensure_ascii=False))
-    lines.append("数值均来自 ClickHouse 固定分析 SQL，未经大模型编造。")
+    if not rows:
+        lines.extend(["", "当前时间范围未查询到数据。"])
     return "\n".join(lines)
 
 
@@ -115,8 +193,8 @@ def _run_fixed_slash(task_id: str, routing: dict[str, Any]) -> dict[str, Any]:
     cmd = routing.get("resolved_command")
     task_store.append_progress(
         task_id,
-        "fixed_slash",
-        f"拦截 {cmd} → {key}（跳过 Agent/LLM）",
+        "固定分析 slash",
+        f"{cmd} → {key}（跳过 LLM，直接跑 ClickHouse SQL）",
     )
     raw = tool_get_fixed_analysis(key)
     payload = json.loads(raw)
@@ -125,7 +203,11 @@ def _run_fixed_slash(task_id: str, routing: dict[str, Any]) -> dict[str, Any]:
         "fixed_analysis",
         {"routing": routing, "result": payload},
     )
-    task_store.append_progress(task_id, "evidence", evidence)
+    task_store.append_progress(
+        task_id,
+        "查询完成",
+        _observe_summary(raw) if payload.get("ok") else _clip(str(payload.get("error")), 320),
+    )
 
     if not payload.get("ok"):
         return {
@@ -136,7 +218,7 @@ def _run_fixed_slash(task_id: str, routing: dict[str, Any]) -> dict[str, Any]:
             "data": payload,
         }
 
-    task_store.append_progress(task_id, "export", "导出 Markdown 报告")
+    task_store.append_progress(task_id, "导出报告", "写入 Markdown 报告文件")
     report_raw = tool_export_analysis_report(raw, title=payload.get("name") or key)
     report = json.loads(report_raw)
     return {
@@ -149,6 +231,7 @@ def _run_fixed_slash(task_id: str, routing: dict[str, Any]) -> dict[str, Any]:
             "analysis_key": payload.get("analysis_key"),
             "name": payload.get("name"),
             "row_count": payload.get("row_count"),
+            "columns": payload.get("columns"),
             "rows": payload.get("rows"),
             "sql": payload.get("sql"),
         },
@@ -177,8 +260,8 @@ def _run_llm_react(task_id: str, query: str) -> dict[str, Any]:
     llm = settings.resolve_llm()
     task_store.append_progress(
         task_id,
-        "agent_loop",
-        f"provider={llm['provider']} model={llm['model']}",
+        "启动 Agent",
+        f"provider={llm['provider']} · model={llm['model']}",
     )
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -189,7 +272,12 @@ def _run_llm_react(task_id: str, query: str) -> dict[str, Any]:
 
     with httpx.Client(timeout=timeout) as client:
         for round_i in range(6):
-            task_store.append_progress(task_id, "llm_round", f"round={round_i + 1}")
+            round_no = round_i + 1
+            task_store.append_progress(
+                task_id,
+                f"LLM 思考 · 第 {round_no} 轮",
+                "等待模型决定：继续查数 / 还是给出结论…",
+            )
             resp = client.post(
                 f"{str(llm['base_url']).rstrip('/')}/chat/completions",
                 headers={"Authorization": f"Bearer {llm['api_key']}"},
@@ -207,9 +295,24 @@ def _run_llm_react(task_id: str, query: str) -> dict[str, Any]:
                     f"HTTP {resp.status_code}: {detail}"
                 )
             msg = _sanitize_assistant_message(resp.json()["choices"][0]["message"])
+            think = (msg.get("content") or "").strip()
             tool_calls = msg.get("tool_calls") or []
+
+            if think:
+                task_store.append_progress(
+                    task_id,
+                    f"模型想法 · 第 {round_no} 轮",
+                    _clip(think, 480),
+                )
+
             if not tool_calls:
                 answer = msg.get("content") or ""
+                task_store.append_progress(
+                    task_id,
+                    "组织最终结论",
+                    "模型未再请求工具，开始输出「结论 + 支撑数据 + 建议」· "
+                    + _clip(answer, 200),
+                )
                 evidence = save_evidence(
                     task_id,
                     "llm_final",
@@ -220,7 +323,7 @@ def _run_llm_react(task_id: str, query: str) -> dict[str, Any]:
                         "model": llm["model"],
                     },
                 )
-                return {
+                out: dict[str, Any] = {
                     "answer": answer,
                     "mode": "agent_loop",
                     "provider": llm["provider"],
@@ -228,6 +331,19 @@ def _run_llm_react(task_id: str, query: str) -> dict[str, Any]:
                     "evidence_path": evidence,
                     "tool_traces": tool_traces,
                 }
+                table = _extract_last_table(tool_traces)
+                if table:
+                    out["data"] = table
+                return out
+
+            names = []
+            for call in tool_calls:
+                names.append((call.get("function") or {}).get("name") or "?")
+            task_store.append_progress(
+                task_id,
+                f"模型决策 · 第 {round_no} 轮",
+                "准备调用: " + ", ".join(names),
+            )
 
             messages.append(msg)
             for call in tool_calls:
@@ -239,6 +355,13 @@ def _run_llm_react(task_id: str, query: str) -> dict[str, Any]:
                     args = {}
                 if not isinstance(args, dict):
                     args = {}
+
+                task_store.append_progress(
+                    task_id,
+                    _tool_step_title(fn, args),
+                    _fmt_tool_args(fn, args),
+                )
+
                 if fn not in TOOLS:
                     result = json.dumps({"ok": False, "error": f"未知工具 {fn}"}, ensure_ascii=False)
                 else:
@@ -254,7 +377,34 @@ def _run_llm_react(task_id: str, query: str) -> dict[str, Any]:
                             {"ok": False, "error": f"工具执行异常: {e}"},
                             ensure_ascii=False,
                         )
-                tool_traces.append({"tool": fn, "args": args, "result_preview": result[:800]})
+
+                task_store.append_progress(task_id, "工具返回", _observe_summary(result))
+
+                tool_entry: dict[str, Any] = {
+                    "tool": fn,
+                    "args": args,
+                    "result_preview": result[:800],
+                }
+                try:
+                    parsed = json.loads(result)
+                    if (
+                        isinstance(parsed, dict)
+                        and parsed.get("ok")
+                        and isinstance(parsed.get("rows"), list)
+                        and parsed["rows"]
+                    ):
+                        tool_entry["table"] = {
+                            "analysis_key": parsed.get("analysis_key"),
+                            "name": parsed.get("name"),
+                            "row_count": parsed.get("row_count", len(parsed["rows"])),
+                            "columns": parsed.get("columns")
+                            or list(parsed["rows"][0].keys()),
+                            "rows": parsed["rows"][:20],
+                            "sql": parsed.get("sql"),
+                        }
+                except (json.JSONDecodeError, TypeError, IndexError, KeyError):
+                    pass
+                tool_traces.append(tool_entry)
                 save_evidence(task_id, f"tool_{round_i}_{fn}", {"args": args, "result": result})
                 messages.append(
                     {
@@ -264,6 +414,7 @@ def _run_llm_react(task_id: str, query: str) -> dict[str, Any]:
                     }
                 )
 
+    task_store.append_progress(task_id, "达到轮次上限", "已跑满 6 轮仍未收敛，请缩小问题或改用 slash")
     evidence = save_evidence(task_id, "llm_timeout", {"tool_traces": tool_traces})
     return {
         "answer": "工具循环超过轮次上限，请缩小问题或改用 /dau /funnel 等固定指令。",
@@ -277,16 +428,13 @@ def _run_llm_react(task_id: str, query: str) -> dict[str, Any]:
 
 def run_agent(task_id: str, query: str) -> dict[str, Any]:
     """约定：先 route_input；fixed_slash 不进 LLM；仅 agent_loop 才进 ReAct。"""
-    task_store.append_progress(task_id, "start", query)
+    task_store.append_progress(task_id, "收到问题", _clip(query, 200))
     try:
         routing = route_input(query)
-        task_store.append_progress(
-            task_id,
-            "route",
-            f"{routing.get('execution_path')}: {routing.get('human_reason')}",
-        )
-
         path = routing.get("execution_path")
+        reason = routing.get("human_reason") or path
+        task_store.append_progress(task_id, "路由决策", f"{path} · {reason}")
+
         if path == "fixed_slash":
             result = _run_fixed_slash(task_id, routing)
         elif path == "slash_help":
@@ -321,9 +469,15 @@ def run_agent(task_id: str, query: str) -> dict[str, Any]:
                 "routing": routing,
             }
 
+        task_store.append_progress(
+            task_id,
+            "完成",
+            f"mode={result.get('mode')}",
+        )
         task_store.finish_task(task_id, result, ok=True)
         return result
     except Exception as e:
+        task_store.append_progress(task_id, "失败", _clip(str(e), 400))
         err = {"answer": f"执行失败: {e}", "mode": "error", "error": str(e)}
         task_store.finish_task(task_id, err, ok=False)
         return err
