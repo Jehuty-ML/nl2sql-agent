@@ -1,0 +1,26 @@
+from app.bi.fixed_queries import FIXED_QUERIES, render_sql
+
+
+def test_render_sql_dates():
+    sql = render_sql(
+        "SELECT 1 WHERE dt BETWEEN {start_date} AND {end_date}",
+        "2026-07-01",
+        "2026-08-01",
+    )
+    assert "toDate('2026-07-01')" in sql
+    assert "toDate('2026-08-01')" in sql
+
+
+def test_fixed_keys_present():
+    for key in ("overview", "dau", "retention", "funnel", "channel_completion"):
+        assert key in FIXED_QUERIES
+        assert "sql" in FIXED_QUERIES[key]
+
+
+def test_retention_sql_uses_user_flags_cte():
+    """留存 SQL 应含 registrations → active_days → user_flags 结构。"""
+    sql = FIXED_QUERIES["retention"]["sql"]
+    assert "user_flags" in sql
+    assert "retained_d1" in sql
+    assert "retained_d7" in sql
+    assert "addDays" in sql
