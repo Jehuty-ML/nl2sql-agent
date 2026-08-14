@@ -128,10 +128,44 @@
       border: 1px solid var(--line);
       border-radius: var(--radius);
       line-height: 1.5;
-      white-space: pre-wrap;
       word-break: break-word;
       font-size: 0.95rem;
     }
+    .msg .body {
+      white-space: pre-wrap;
+    }
+    .msg .table-wrap {
+      margin-top: 10px;
+    }
+    .msg .table-caption {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+    .msg .table-scroll {
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+    }
+    .msg table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.84rem;
+      min-width: 280px;
+    }
+    .msg th, .msg td {
+      padding: 7px 9px;
+      text-align: left;
+      border-bottom: 1px solid var(--line);
+      white-space: nowrap;
+    }
+    .msg th {
+      background: #eef3ef;
+      font-weight: 600;
+    }
+    .msg tbody tr:nth-child(even) { background: #fafbf8; }
+    .msg tbody tr:last-child td { border-bottom: none; }
     .msg.user {
       align-self: flex-end;
       background: #e7efe9;
@@ -312,14 +346,92 @@
     const sendBtn = document.getElementById("sendBtn");
     document.getElementById("apiBase").textContent = location.origin;
 
-    function addMsg(role, text) {
+    const COL_LABELS = {
+      cohort_size: "Cohort 用户数",
+      d1_retained: "次日留存人数",
+      d7_retained: "七日留存人数",
+      d1_rate: "次日留存率",
+      d7_rate: "七日留存率",
+      new_learners: "新增学习者",
+      dau: "DAU",
+      start_lesson_cnt: "开课次数",
+      complete_lesson_cnt: "完课次数",
+      completion_rate: "完课率",
+      exercise_users: "练习用户数",
+      dt: "日期",
+      view_path_uv: "浏览路径 UV",
+      start_lesson_uv: "开课 UV",
+      complete_lesson_uv: "完课 UV",
+      submit_exercise_uv: "交练习 UV",
+      register_channel: "注册渠道",
+      complete_uv: "完课 UV",
+      user_cnt: "用户数",
+    };
+
+    function columnLabel(key) {
+      return COL_LABELS[key] || key;
+    }
+
+    function formatCellValue(key, value) {
+      if (value == null) return "";
+      if (typeof value === "boolean") return value ? "是" : "否";
+      if (typeof value === "number") {
+        const kl = String(key).toLowerCase();
+        if (kl.endsWith("_rate") || kl.endsWith("_pct") || kl.endsWith("_ratio")) {
+          if (value >= 0 && value <= 1) return (value * 100).toFixed(2) + "%";
+          return value.toFixed(2) + "%";
+        }
+        if (!Number.isInteger(value)) return Number(value.toPrecision(6)).toString();
+        return String(value);
+      }
+      return String(value);
+    }
+
+    function addMsg(role, text, table) {
       const div = document.createElement("div");
       div.className = "msg " + role;
       const label = document.createElement("span");
       label.className = "label";
       label.textContent = role === "user" ? "You" : role === "assistant" ? "Agent" : "Hint";
       div.appendChild(label);
-      div.appendChild(document.createTextNode(text));
+      const body = document.createElement("div");
+      body.className = "body";
+      body.textContent = text;
+      div.appendChild(body);
+      if (table && table.rows && table.rows.length) {
+        const wrap = document.createElement("div");
+        wrap.className = "table-wrap";
+        const caption = document.createElement("div");
+        caption.className = "table-caption";
+        caption.textContent = "数据摘要（" + table.rows.length + " 行）";
+        wrap.appendChild(caption);
+        const scroll = document.createElement("div");
+        scroll.className = "table-scroll";
+        const tbl = document.createElement("table");
+        const thead = document.createElement("thead");
+        const hr = document.createElement("tr");
+        table.columns.forEach((col) => {
+          const th = document.createElement("th");
+          th.textContent = columnLabel(col);
+          hr.appendChild(th);
+        });
+        thead.appendChild(hr);
+        tbl.appendChild(thead);
+        const tbody = document.createElement("tbody");
+        table.rows.forEach((row) => {
+          const tr = document.createElement("tr");
+          table.columns.forEach((col) => {
+            const td = document.createElement("td");
+            td.textContent = formatCellValue(col, row[col]);
+            tr.appendChild(td);
+          });
+          tbody.appendChild(tr);
+        });
+        tbl.appendChild(tbody);
+        scroll.appendChild(tbl);
+        wrap.appendChild(scroll);
+        div.appendChild(wrap);
+      }
       messagesEl.appendChild(div);
       messagesEl.scrollTop = messagesEl.scrollHeight;
     }
@@ -376,19 +488,27 @@
       throw new Error("轮询超时");
     }
 
+    function buildTable(data) {
+      const rows = ((data && data.rows) || []).slice(0, 20);
+      if (!rows.length) return null;
+      const columns =
+        data.columns && data.columns.length
+          ? data.columns
+          : Object.keys(rows[0] || {});
+      if (!columns.length) return null;
+      return { columns, rows };
+    }
+
     function formatResult(result) {
-      if (!result) return "(无结果)";
+      if (!result) return { text: "(无结果)", table: null };
       let text = result.answer || "";
-      if (result.data && result.data.rows) {
-        text += "\n\n— 数据摘要 —\n" + JSON.stringify(result.data.rows.slice(0, 5), null, 2);
-      }
       if (result.report && result.report.path) {
         text += "\n\n报告: " + result.report.path;
       }
       if (result.evidence_path) {
         text += "\n证据: " + result.evidence_path;
       }
-      return text;
+      return { text: text.trim(), table: buildTable(result.data) };
     }
 
     async function ask(query) {
@@ -406,7 +526,8 @@
         });
         const j = await r.json();
         const task = await pollTask(j.task_id);
-        addMsg("assistant", formatResult(task.final_result));
+        const formatted = formatResult(task.final_result);
+        addMsg("assistant", formatted.text, formatted.table);
       } catch (e) {
         addMsg("assistant", "请求失败: " + e.message);
       } finally {
