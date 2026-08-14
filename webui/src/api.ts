@@ -17,6 +17,8 @@ export interface ChatMessage {
 export interface ProgressStep {
   step: string;
   detail?: string;
+  /** 完整原文（未截断）；有则点开可看全文 Markdown */
+  full?: string;
   ts?: number;
 }
 

@@ -56,7 +56,14 @@ def create_task(query: str) -> str:
     return tid
 
 
-def append_progress(task_id: str, step: str, detail: str = "") -> None:
+def append_progress(
+    task_id: str,
+    step: str,
+    detail: str = "",
+    *,
+    full: str | None = None,
+) -> None:
+    """追加进度。detail 供列表摘要；full 保留完整原文（点开查看）。"""
     with _lock:
         t = _TASKS.get(task_id)
         if not t:
@@ -64,7 +71,10 @@ def append_progress(task_id: str, step: str, detail: str = "") -> None:
             if not t:
                 return
             _TASKS[task_id] = t
-        t["progress"].append({"step": step, "detail": detail, "ts": time.time()})
+        entry: dict[str, Any] = {"step": step, "detail": detail, "ts": time.time()}
+        if full and full.strip() and full.strip() != str(detail).strip():
+            entry["full"] = full
+        t["progress"].append(entry)
         t["status"] = "running"
         t["updated_at"] = time.time()
         _persist(t)

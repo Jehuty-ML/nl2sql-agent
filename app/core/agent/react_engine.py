@@ -303,6 +303,7 @@ def _run_llm_react(task_id: str, query: str) -> dict[str, Any]:
                     task_id,
                     f"模型想法 · 第 {round_no} 轮",
                     _clip(think, 480),
+                    full=think,
                 )
 
             if not tool_calls:
@@ -310,8 +311,9 @@ def _run_llm_react(task_id: str, query: str) -> dict[str, Any]:
                 task_store.append_progress(
                     task_id,
                     "组织最终结论",
-                    "模型未再请求工具，开始输出「结论 + 支撑数据 + 建议」· "
+                    "模型未再请求工具，输出「结论 + 支撑数据 + 建议」· "
                     + _clip(answer, 200),
+                    full=answer,
                 )
                 evidence = save_evidence(
                     task_id,
@@ -360,6 +362,7 @@ def _run_llm_react(task_id: str, query: str) -> dict[str, Any]:
                     task_id,
                     _tool_step_title(fn, args),
                     _fmt_tool_args(fn, args),
+                    full=(str(args.get("sql") or "") if fn == "db_query" else None),
                 )
 
                 if fn not in TOOLS:
@@ -378,7 +381,16 @@ def _run_llm_react(task_id: str, query: str) -> dict[str, Any]:
                             ensure_ascii=False,
                         )
 
-                task_store.append_progress(task_id, "工具返回", _observe_summary(result))
+                try:
+                    pretty = json.dumps(json.loads(result), ensure_ascii=False, indent=2)
+                except Exception:
+                    pretty = result
+                task_store.append_progress(
+                    task_id,
+                    "工具返回",
+                    _observe_summary(result),
+                    full=pretty if len(pretty) > 160 else None,
+                )
 
                 tool_entry: dict[str, Any] = {
                     "tool": fn,

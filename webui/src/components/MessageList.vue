@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
 import { columnLabel, formatCellValue, type ChatMessage } from "../api";
+import { renderMarkdown } from "../markdown";
 
 const props = defineProps<{ messages: ChatMessage[] }>();
 const box = ref<HTMLElement | null>(null);
@@ -13,79 +14,10 @@ watch(
   }
 );
 
-/** 轻量 Markdown：标题 / 加粗 / 列表；表格仍优先用结构化 table */
-function renderRich(text: string): string {
-  const esc = (s: string) =>
-    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  const lines = text.split("\n");
-  const out: string[] = [];
-  let inMdTable = false;
-  let mdTableRows: string[][] = [];
-
-  const flushMdTable = () => {
-    if (!mdTableRows.length) return;
-    const header = mdTableRows[0];
-    const body = mdTableRows.slice(2); // skip separator
-    out.push('<div class="table-scroll"><table>');
-    out.push(
-      "<thead><tr>" +
-        header.map((c) => `<th>${esc(c.trim())}</th>`).join("") +
-        "</tr></thead><tbody>"
-    );
-    for (const row of body) {
-      out.push(
-        "<tr>" + row.map((c) => `<td>${esc(c.trim())}</td>`).join("") + "</tr>"
-      );
-    }
-    out.push("</tbody></table></div>");
-    mdTableRows = [];
-    inMdTable = false;
-  };
-
-  const inline = (s: string) =>
-    esc(s).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-
-  for (const raw of lines) {
-    const line = raw;
-    if (/^\|(.+)\|$/.test(line.trim())) {
-      const cells = line
-        .trim()
-        .slice(1, -1)
-        .split("|")
-        .map((c) => c.trim());
-      if (/^\|?\s*:?-{3,}/.test(line.trim()) || cells.every((c) => /^:?-{3,}:?$/.test(c))) {
-        inMdTable = true;
-        mdTableRows.push(cells);
-        continue;
-      }
-      inMdTable = true;
-      mdTableRows.push(cells);
-      continue;
-    }
-    if (inMdTable) flushMdTable();
-
-    if (/^###\s+/.test(line)) {
-      out.push(`<h3 class="md-h3">${inline(line.replace(/^###\s+/, ""))}</h3>`);
-    } else if (/^##\s+/.test(line)) {
-      out.push(`<h3 class="md-h3">${inline(line.replace(/^##\s+/, ""))}</h3>`);
-    } else if (/^\d+\.\s+/.test(line)) {
-      out.push(`<p class="md-li">${inline(line)}</p>`);
-    } else if (/^[-*]\s+/.test(line)) {
-      out.push(`<p class="md-li">${inline(line.replace(/^[-*]\s+/, "• "))}</p>`);
-    } else if (!line.trim()) {
-      out.push("<br/>");
-    } else {
-      out.push(`<p class="md-p">${inline(line)}</p>`);
-    }
-  }
-  if (inMdTable) flushMdTable();
-  return out.join("");
-}
-
 const rendered = computed(() =>
   props.messages.map((m) => ({
     ...m,
-    html: m.role === "assistant" ? renderRich(m.content) : "",
+    html: m.role === "assistant" ? renderMarkdown(m.content) : "",
   }))
 );
 </script>

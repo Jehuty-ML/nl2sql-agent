@@ -1,0 +1,84 @@
+/** 轻量 Markdown → HTML（标题 / 加粗 / 列表 / 表格 / 分隔线） */
+
+function esc(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function inline(s: string): string {
+  return esc(s).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+}
+
+function isTableSep(cells: string[]): boolean {
+  return cells.length > 0 && cells.every((c) => /^:?-{3,}:?$/.test(c));
+}
+
+function isTableLine(line: string): boolean {
+  const t = line.trim();
+  return t.startsWith("|") && t.includes("|", 1);
+}
+
+function splitCells(line: string): string[] {
+  let t = line.trim();
+  if (t.startsWith("|")) t = t.slice(1);
+  if (t.endsWith("|")) t = t.slice(0, -1);
+  return t.split("|").map((c) => c.trim());
+}
+
+export function renderMarkdown(text: string): string {
+  const lines = String(text || "").replace(/\r\n/g, "\n").split("\n");
+  const out: string[] = [];
+  let mdTableRows: string[][] = [];
+
+  const flushMdTable = () => {
+    if (!mdTableRows.length) return;
+    const header = mdTableRows[0];
+    const maybeSep = mdTableRows[1];
+    const body = maybeSep && isTableSep(maybeSep) ? mdTableRows.slice(2) : mdTableRows.slice(1);
+    out.push('<div class="table-scroll"><table>');
+    out.push(
+      "<thead><tr>" + header.map((c) => `<th>${esc(c)}</th>`).join("") + "</tr></thead><tbody>"
+    );
+    for (const row of body) {
+      const cells = [...row];
+      while (cells.length < header.length) cells.push("");
+      out.push(
+        "<tr>" +
+          header.map((_, i) => `<td>${esc(cells[i] || "")}</td>`).join("") +
+          "</tr>"
+      );
+    }
+    out.push("</tbody></table></div>");
+    mdTableRows = [];
+  };
+
+  for (const line of lines) {
+    if (isTableLine(line)) {
+      mdTableRows.push(splitCells(line));
+      continue;
+    }
+    if (mdTableRows.length) flushMdTable();
+
+    const t = line.trim();
+    if (/^---+$/.test(t) || /^\*\*\*+$/.test(t)) {
+      out.push('<hr class="md-hr"/>');
+    } else if (/^####\s+/.test(line)) {
+      out.push(`<h4 class="md-h4">${inline(line.replace(/^####\s+/, ""))}</h4>`);
+    } else if (/^###\s+/.test(line)) {
+      out.push(`<h3 class="md-h3">${inline(line.replace(/^###\s+/, ""))}</h3>`);
+    } else if (/^##\s+/.test(line)) {
+      out.push(`<h3 class="md-h3">${inline(line.replace(/^##\s+/, ""))}</h3>`);
+    } else if (/^#\s+/.test(line)) {
+      out.push(`<h3 class="md-h3">${inline(line.replace(/^#\s+/, ""))}</h3>`);
+    } else if (/^\d+\.\s+/.test(t)) {
+      out.push(`<p class="md-li">${inline(t)}</p>`);
+    } else if (/^[-*]\s+/.test(t)) {
+      out.push(`<p class="md-li">${inline(t.replace(/^[-*]\s+/, "• "))}</p>`);
+    } else if (!t) {
+      out.push("<br/>");
+    } else {
+      out.push(`<p class="md-p">${inline(line)}</p>`);
+    }
+  }
+  if (mdTableRows.length) flushMdTable();
+  return out.join("");
+}
