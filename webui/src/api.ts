@@ -187,10 +187,10 @@ export function createSession(title = "新分析"): Session {
         role: "system",
         content:
           "【关于本项目】\n" +
-          "LumenLearn（流明学堂）是虚构的示例业务域：合成学习数据与指标用于跑通问数流程，不是真实产品。\n" +
-          "核心能力是「自然语言 / slash → 只读查数 → 表格与结论」；换成你自己的库表与固定 SQL 同样可以分析——连接配置、事件字典、FIXED_QUERIES 都可替换。\n\n" +
+          "这是通用 NL2SQL / 问数 Agent（slash + ReAct + 只读查数）。\n" +
+          "当前预置的 LumenLearn 只是临时虚构场景与样本库，方便开箱试用；换成你自己的连接、表结构与 FIXED_QUERIES 即可做真实业务分析。\n\n" +
           "【两条通道】\n" +
-          "• slash（/dau 等）→ 固定 SQL，只出数据表，不经 LLM\n" +
+          "• slash（/dau 等，示例指令）→ 固定 SQL，只出数据表，不经 LLM\n" +
           "• 中文提问 → Agent，产出「结论 + 支撑数据 + 运营建议」（需配置 LLM）",
         createdAt: now,
       },

@@ -15,7 +15,7 @@ import MessageList from "./components/MessageList.vue";
 import Composer from "./components/Composer.vue";
 import RunLog from "./components/RunLog.vue";
 
-const STORAGE_KEY = "lumen_query_bench_sessions_v4";
+const STORAGE_KEY = "lumen_query_bench_sessions_v5";
 const LAYOUT_KEY = "lumen_query_bench_layout_v1";
 
 const MIN_LEFT = 180;
