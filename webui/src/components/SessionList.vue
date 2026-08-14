@@ -51,7 +51,9 @@ defineEmits<{
   display: grid;
   grid-template-rows: auto 1fr;
   gap: 10px;
+  min-width: 0;
   min-height: 0;
+  overflow: hidden;
   box-shadow: var(--shadow);
 }
 
