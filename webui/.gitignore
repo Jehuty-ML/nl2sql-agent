@@ -1,0 +1,5 @@
+# 旧版单页 HTML（已被 webui Vue 替代，保留作兜底）
+node_modules/
+dist/
+.DS_Store
+*.local

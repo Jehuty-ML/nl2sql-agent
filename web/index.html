@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LumenLearn · Query Bench</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@500;600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --ink: #1e2a24;
+      --muted: #5a6b62;
+      --paper: #f3f1ea;
+      --panel: #fffdf8;
+      --line: #c9d0c4;
+      --forest: #2f5d50;
+      --forest-deep: #1f4037;
+      --moss: #7a8f6a;
+      --warn: #9a5b2e;
+      --ok: #2f6b4f;
+      --err: #8b3a3a;
+      --rail: 280px;
+      --radius: 4px;
+      --font-sans: "IBM Plex Sans", "Segoe UI", sans-serif;
+      --font-display: "IBM Plex Serif", Georgia, serif;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      font-family: var(--font-sans);
+      color: var(--ink);
+      background:
+        linear-gradient(180deg, rgba(47, 93, 80, 0.06), transparent 28%),
+        repeating-linear-gradient(
+          0deg,
+          transparent,
+          transparent 23px,
+          rgba(47, 93, 80, 0.04) 24px
+        ),
+        var(--paper);
+    }
+
+    .shell {
+      max-width: 1120px;
+      margin: 0 auto;
+      min-height: 100%;
+      display: grid;
+      grid-template-rows: auto 1fr;
+      padding: 20px 18px 16px;
+      gap: 14px;
+    }
+
+    header.brand {
+      display: grid;
+      gap: 6px;
+      border-bottom: 2px solid var(--forest);
+      padding-bottom: 12px;
+    }
+    header.brand h1 {
+      margin: 0;
+      font-family: var(--font-display);
+      font-weight: 600;
+      font-size: clamp(1.6rem, 3vw, 2.1rem);
+      letter-spacing: -0.02em;
+      color: var(--forest-deep);
+    }
+    header.brand p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.92rem;
+      max-width: 42rem;
+      line-height: 1.45;
+    }
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px 16px;
+      font-size: 0.8rem;
+      color: var(--muted);
+      margin-top: 4px;
+    }
+    .meta strong { color: var(--forest); font-weight: 600; }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      display: inline-block; margin-right: 6px;
+      background: var(--line); vertical-align: middle;
+    }
+    .dot.up { background: var(--ok); }
+    .dot.down { background: var(--err); }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: 1fr var(--rail);
+      gap: 14px;
+      min-height: 0;
+    }
+    @media (max-width: 860px) {
+      .workspace { grid-template-columns: 1fr; }
+      .rail { order: -1; max-height: 180px; }
+    }
+
+    .chat-panel, .rail {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      min-height: 0;
+    }
+
+    .chat-panel {
+      display: grid;
+      grid-template-rows: 1fr auto;
+      min-height: 62vh;
+    }
+
+    #messages {
+      overflow: auto;
+      padding: 18px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .msg {
+      max-width: min(92%, 640px);
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-size: 0.95rem;
+    }
+    .msg.user {
+      align-self: flex-end;
+      background: #e7efe9;
+      border-color: #b7cbbd;
+    }
+    .msg.assistant {
+      align-self: flex-start;
+      background: #fff;
+      border-left: 3px solid var(--forest);
+    }
+    .msg.system {
+      align-self: center;
+      background: transparent;
+      border-style: dashed;
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
+    .msg .label {
+      display: block;
+      font-size: 0.72rem;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 4px;
+      font-weight: 600;
+    }
+
+    .composer {
+      border-top: 1px solid var(--line);
+      padding: 12px;
+      display: grid;
+      gap: 10px;
+      background: #faf8f2;
+    }
+    .hints {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 12px;
+    }
+    .hints button {
+      background: none;
+      border: none;
+      padding: 0;
+      color: var(--forest);
+      text-decoration: underline;
+      text-underline-offset: 3px;
+      cursor: pointer;
+      font: inherit;
+      font-size: 0.85rem;
+    }
+    .hints button:hover { color: var(--forest-deep); }
+
+    .row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+      align-items: end;
+    }
+    textarea {
+      width: 100%;
+      min-height: 64px;
+      resize: vertical;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 10px 12px;
+      font: inherit;
+      background: #fff;
+      color: var(--ink);
+    }
+    textarea:focus {
+      outline: 2px solid rgba(47, 93, 80, 0.25);
+      border-color: var(--forest);
+    }
+    button.send {
+      border: 1px solid var(--forest-deep);
+      background: var(--forest);
+      color: #f7faf7;
+      padding: 10px 16px;
+      border-radius: var(--radius);
+      font: inherit;
+      font-weight: 600;
+      cursor: pointer;
+      min-width: 88px;
+    }
+    button.send:hover { background: var(--forest-deep); }
+    button.send:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+
+    .rail {
+      padding: 12px;
+      display: grid;
+      grid-template-rows: auto 1fr;
+      gap: 8px;
+      overflow: hidden;
+    }
+    .rail h2 {
+      margin: 0;
+      font-family: var(--font-display);
+      font-size: 1.05rem;
+      color: var(--forest-deep);
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 8px;
+    }
+    #progress {
+      overflow: auto;
+      font-size: 0.82rem;
+      color: var(--muted);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .step {
+      border-left: 2px solid var(--moss);
+      padding: 4px 0 4px 8px;
+    }
+    .step .t { color: var(--ink); font-weight: 500; }
+    .empty-rail { color: var(--muted); font-style: italic; }
+
+    footer.note {
+      font-size: 0.75rem;
+      color: var(--muted);
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header class="brand">
+      <h1>LumenLearn Query Bench</h1>
+      <p>开源学习社区行为分析工作台 · 合成数据 Demo。用自然语言查 ClickHouse（events / users）。</p>
+      <div class="meta">
+        <span><span id="ckDot" class="dot"></span>ClickHouse: <strong id="ckStatus">…</strong></span>
+        <span>LLM: <strong id="llmStatus">…</strong></span>
+        <span>API: <strong id="apiBase"></strong></span>
+      </div>
+    </header>
+
+    <div class="workspace">
+      <section class="chat-panel" aria-label="对话区">
+        <div id="messages">
+          <div class="msg system">
+            试试：「最近日活怎么样」「学习漏斗」「次日留存」「渠道完课」「概览」。
+            无 LLM Key 时走固定分析；数值来自工具查询，不编造。
+          </div>
+        </div>
+        <div class="composer">
+          <div class="hints">
+            <button type="button" data-q="最近日活怎么样">日活</button>
+            <button type="button" data-q="学习漏斗掉点在哪">漏斗</button>
+            <button type="button" data-q="次日留存如何">留存</button>
+            <button type="button" data-q="按渠道看完课">渠道</button>
+            <button type="button" data-q="给一个学习概览">概览</button>
+          </div>
+          <div class="row">
+            <textarea id="input" placeholder="输入分析问题…" rows="3"></textarea>
+            <button class="send" id="sendBtn" type="button">询问</button>
+          </div>
+        </div>
+      </section>
+
+      <aside class="rail" aria-label="任务进度">
+        <h2>Run Log</h2>
+        <div id="progress"><div class="empty-rail">尚无任务</div></div>
+      </aside>
+    </div>
+
+    <footer class="note">Synthetic Demo Only · lumen-query-agent</footer>
+  </div>
+
+  <script>
+    const API = "";
+    const messagesEl = document.getElementById("messages");
+    const progressEl = document.getElementById("progress");
+    const inputEl = document.getElementById("input");
+    const sendBtn = document.getElementById("sendBtn");
+    document.getElementById("apiBase").textContent = location.origin;
+
+    function addMsg(role, text) {
+      const div = document.createElement("div");
+      div.className = "msg " + role;
+      const label = document.createElement("span");
+      label.className = "label";
+      label.textContent = role === "user" ? "You" : role === "assistant" ? "Agent" : "Hint";
+      div.appendChild(label);
+      div.appendChild(document.createTextNode(text));
+      messagesEl.appendChild(div);
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+
+    function setProgress(steps, taskId, status) {
+      progressEl.innerHTML = "";
+      const head = document.createElement("div");
+      head.className = "step";
+      head.innerHTML = `<div class="t">task ${taskId || "-"}</div><div>${status || ""}</div>`;
+      progressEl.appendChild(head);
+      (steps || []).forEach((s) => {
+        const el = document.createElement("div");
+        el.className = "step";
+        el.innerHTML = `<div class="t">${escapeHtml(s.step || "")}</div><div>${escapeHtml(s.detail || "")}</div>`;
+        progressEl.appendChild(el);
+      });
+      if (!steps || !steps.length) {
+        const empty = document.createElement("div");
+        empty.className = "empty-rail";
+        empty.textContent = "等待步骤…";
+        progressEl.appendChild(empty);
+      }
+    }
+
+    function escapeHtml(s) {
+      return String(s)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;");
+    }
+
+    async function refreshHealth() {
+      try {
+        const r = await fetch(API + "/health");
+        const j = await r.json();
+        const up = j.clickhouse === "up";
+        document.getElementById("ckStatus").textContent = up ? "up" : "down";
+        document.getElementById("ckDot").className = "dot " + (up ? "up" : "down");
+        document.getElementById("llmStatus").textContent = j.llm_enabled ? "on" : "off (固定分析)";
+      } catch (e) {
+        document.getElementById("ckStatus").textContent = "unreachable";
+        document.getElementById("ckDot").className = "dot down";
+      }
+    }
+
+    async function pollTask(taskId) {
+      for (let i = 0; i < 60; i++) {
+        const r = await fetch(API + "/api/v1/task/" + taskId);
+        const t = await r.json();
+        setProgress(t.progress, taskId, t.status);
+        if (t.status === "succeeded" || t.status === "failed") return t;
+        await new Promise((res) => setTimeout(res, 400));
+      }
+      throw new Error("轮询超时");
+    }
+
+    function formatResult(result) {
+      if (!result) return "(无结果)";
+      let text = result.answer || "";
+      if (result.data && result.data.rows) {
+        text += "\n\n— 数据摘要 —\n" + JSON.stringify(result.data.rows.slice(0, 5), null, 2);
+      }
+      if (result.report && result.report.path) {
+        text += "\n\n报告: " + result.report.path;
+      }
+      if (result.evidence_path) {
+        text += "\n证据: " + result.evidence_path;
+      }
+      return text;
+    }
+
+    async function ask(query) {
+      const q = (query || "").trim();
+      if (!q) return;
+      sendBtn.disabled = true;
+      addMsg("user", q);
+      inputEl.value = "";
+      setProgress([], null, "accepted");
+      try {
+        const r = await fetch(API + "/api/v1/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query: q, sync: false }),
+        });
+        const j = await r.json();
+        const task = await pollTask(j.task_id);
+        addMsg("assistant", formatResult(task.final_result));
+      } catch (e) {
+        addMsg("assistant", "请求失败: " + e.message);
+      } finally {
+        sendBtn.disabled = false;
+        inputEl.focus();
+      }
+    }
+
+    sendBtn.addEventListener("click", () => ask(inputEl.value));
+    inputEl.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        ask(inputEl.value);
+      }
+    });
+    document.querySelectorAll(".hints button").forEach((btn) => {
+      btn.addEventListener("click", () => ask(btn.getAttribute("data-q")));
+    });
+
+    refreshHealth();
+    setInterval(refreshHealth, 15000);
+  </script>
+</body>
+</html>

@@ -1,0 +1,56 @@
+:root {
+  --ink: #1a1c19;
+  --muted: #5f675c;
+  --fog: #eef1ec;
+  --panel: #fbfcf9;
+  --line: #d5dbc8;
+  --amber: #c9842c;
+  --amber-deep: #9a6218;
+  --oak: #3d4a3a;
+  --ok: #2f6b45;
+  --err: #a33b3b;
+  --user-bg: #2a3328;
+  --shadow: 0 10px 30px -18px rgba(26, 28, 25, 0.35);
+  --font: "Sora", "Segoe UI", sans-serif;
+  --display: "Fraunces", Georgia, serif;
+  --radius: 10px;
+  --sidebar: 250px;
+  --rail: 270px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--font);
+  color: var(--ink);
+  background:
+    radial-gradient(1000px 420px at 12% -10%, rgba(201, 132, 44, 0.16), transparent 55%),
+    radial-gradient(800px 380px at 90% 0%, rgba(61, 74, 58, 0.1), transparent 50%),
+    var(--fog);
+}
+
+button,
+textarea {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: #c3c9be;
+  border-radius: 8px;
+}

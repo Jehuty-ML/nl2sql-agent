@@ -1,0 +1,283 @@
+<script setup lang="ts">
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import {
+  createSession,
+  fetchHealth,
+  fetchTask,
+  formatResult,
+  newMessage,
+  startChat,
+  type HealthInfo,
+  type Session,
+} from "./api";
+import SessionList from "./components/SessionList.vue";
+import MessageList from "./components/MessageList.vue";
+import Composer from "./components/Composer.vue";
+import RunLog from "./components/RunLog.vue";
+
+const STORAGE_KEY = "lumen_query_bench_sessions_v1";
+
+const sessions = ref<Session[]>([]);
+const activeId = ref("");
+const busy = ref(false);
+const health = ref<HealthInfo | null>(null);
+let healthTimer: number | undefined;
+let pollTimer: number | undefined;
+
+const active = computed(() => sessions.value.find((s) => s.id === activeId.value) || null);
+
+function persist() {
+  localStorage.setItem(
+    STORAGE_KEY,
+    JSON.stringify({ activeId: activeId.value, sessions: sessions.value })
+  );
+}
+
+function load() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return false;
+    const data = JSON.parse(raw);
+    sessions.value = data.sessions || [];
+    activeId.value = data.activeId || sessions.value[0]?.id || "";
+    return sessions.value.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+function ensureSession() {
+  if (!load()) {
+    const s = createSession();
+    sessions.value = [s];
+    activeId.value = s.id;
+    persist();
+  }
+}
+
+function addSession() {
+  const s = createSession();
+  sessions.value = [s, ...sessions.value];
+  activeId.value = s.id;
+  persist();
+}
+
+function removeSession(id: string) {
+  sessions.value = sessions.value.filter((s) => s.id !== id);
+  if (!sessions.value.length) {
+    const s = createSession();
+    sessions.value = [s];
+    activeId.value = s.id;
+  } else if (activeId.value === id) {
+    activeId.value = sessions.value[0].id;
+  }
+  persist();
+}
+
+function selectSession(id: string) {
+  activeId.value = id;
+  persist();
+}
+
+async function refreshHealth() {
+  try {
+    health.value = await fetchHealth();
+  } catch {
+    health.value = { status: "down", clickhouse: "down", llm_enabled: false };
+  }
+}
+
+async function ask(query: string) {
+  const q = query.trim();
+  const s = active.value;
+  if (!q || !s || busy.value) return;
+
+  busy.value = true;
+  s.messages.push(newMessage("user", q));
+  if (s.title === "新分析") s.title = q.slice(0, 18);
+  s.status = "running";
+  s.progress = [];
+  s.updatedAt = Date.now();
+  persist();
+
+  try {
+    const { task_id } = await startChat(q);
+    s.taskId = task_id;
+    persist();
+
+    for (let i = 0; i < 80; i++) {
+      const task = await fetchTask(task_id);
+      s.progress = task.progress || [];
+      s.status = task.status;
+      persist();
+      if (task.status === "succeeded" || task.status === "failed") {
+        s.messages.push(newMessage("assistant", formatResult(task.final_result)));
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 400));
+    }
+  } catch (e: any) {
+    s.messages.push(newMessage("assistant", `请求失败: ${e?.message || e}`));
+    s.status = "failed";
+  } finally {
+    busy.value = false;
+    s.updatedAt = Date.now();
+    persist();
+  }
+}
+
+watch(sessions, persist, { deep: true });
+
+onMounted(() => {
+  ensureSession();
+  refreshHealth();
+  healthTimer = window.setInterval(refreshHealth, 15000);
+});
+
+onUnmounted(() => {
+  if (healthTimer) clearInterval(healthTimer);
+  if (pollTimer) clearInterval(pollTimer);
+});
+</script>
+
+<template>
+  <div class="app">
+    <header class="top">
+      <div class="brand">
+        <div class="mark" aria-hidden="true"></div>
+        <div>
+          <h1>LumenLearn</h1>
+          <p>Query Bench · 学习行为分析工作台</p>
+        </div>
+      </div>
+      <div class="status">
+        <span>
+          <i :class="['dot', health?.clickhouse === 'up' ? 'up' : 'down']" />
+          CK {{ health?.clickhouse || "…" }}
+        </span>
+        <span>LLM {{ health?.llm_enabled ? "on" : "off" }}</span>
+        <span v-if="health?.llm_provider">{{ health.llm_provider }}/{{ health.llm_model }}</span>
+      </div>
+    </header>
+
+    <main class="layout">
+      <SessionList
+        :sessions="sessions"
+        :active-id="activeId"
+        @select="selectSession"
+        @create="addSession"
+        @remove="removeSession"
+      />
+
+      <section class="stage">
+        <MessageList v-if="active" :messages="active.messages" />
+        <Composer :disabled="busy" @send="ask" />
+      </section>
+
+      <RunLog
+        v-if="active"
+        :task-id="active.taskId"
+        :status="active.status"
+        :progress="active.progress"
+      />
+    </main>
+  </div>
+</template>
+
+<style scoped>
+.app {
+  height: 100%;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 16px;
+  gap: 12px;
+}
+
+.top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 4px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.brand {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.mark {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  background:
+    linear-gradient(145deg, var(--amber) 0%, var(--amber-deep) 55%, var(--oak) 100%);
+  box-shadow: var(--shadow);
+}
+
+.brand h1 {
+  margin: 0;
+  font-family: var(--display);
+  font-size: 1.55rem;
+  letter-spacing: -0.03em;
+  color: var(--oak);
+  line-height: 1.1;
+}
+
+.brand p {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.status {
+  display: flex;
+  gap: 14px;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  margin-right: 6px;
+  background: #b0b8a8;
+}
+.dot.up {
+  background: var(--ok);
+}
+.dot.down {
+  background: var(--err);
+}
+
+.layout {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: var(--sidebar) 1fr var(--rail);
+  gap: 12px;
+}
+
+.stage {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: 1fr auto;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+@media (max-width: 980px) {
+  .layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr auto;
+  }
+}
+</style>
