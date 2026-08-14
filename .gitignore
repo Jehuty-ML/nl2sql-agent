@@ -11,5 +11,6 @@ dist/
 build/
 webui/node_modules/
 webui/dist/
+data/
 *.log
 .DS_Store

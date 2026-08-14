@@ -8,6 +8,8 @@ LumenLearn（流明学堂）问数台 · 自然语言数据分析 Agent（求职
 - **自然语言 Agent**：ReAct 调工具，交付「结论 + 数据 + 运营建议」
 - **Vue 问数台**：会话、进度、表格与 SQL/JSON 全文美化
 
+本仓自带 **ClickHouse Compose + DDL + 造数脚本**，clone 后可独立跑通，无需外部采集仓库。
+
 > 业务叙事为虚构开源学习社区；数据为 Synthetic Demo Only。
 
 ---
@@ -64,7 +66,7 @@ LumenLearn（流明学堂）问数台 · 自然语言数据分析 Agent（求职
 |----|------|
 | API | FastAPI · 任务进度落盘 |
 | Agent | 单 Agent ReAct · OpenAI 兼容 Chat Completions |
-| 数据 | ClickHouse only（与 `analysis` 仓事件字典对齐） |
+| 数据 | ClickHouse only（本仓 `infra/` + 合成数据） |
 | 前端 | Vue 3 + Vite（Fraunces / Sora · 橡木色） |
 
 ---
@@ -74,24 +76,28 @@ LumenLearn（流明学堂）问数台 · 自然语言数据分析 Agent（求职
 ### 1. 依赖与配置
 
 ```powershell
-cd F:\data_analysis_agent\lumen-query-agent
+cd lumen-query-agent
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 copy .env.example .env
 ```
 
-先起 ClickHouse 并导入 Demo 数据（与 `analysis` 仓共用）：
+### 2. 启动 ClickHouse 并灌入 Demo 数据
+
+需本机已安装 Docker。
 
 ```powershell
-# cd ..\analysis
-# docker compose up -d
-# python .\scripts\generate_demo_data.py --seed 42 --to-clickhouse --truncate
+docker compose -f infra/docker-compose.yml up -d
+python .\scripts\generate_demo_data.py --seed 42 --to-clickhouse --truncate
 ```
+
+默认账号与 `.env.example` 一致：`lumen` / `lumen_demo`，库 `lumenlearn`。  
+更多造数参数见 [`scripts/README.md`](scripts/README.md)。
 
 Demo 业务日大致在 **2026-05-04 ~ 2026-08-01**；Agent 默认日期窗会落在该区间。
 
-### 2. 启动后端
+### 3. 启动后端
 
 ```powershell
 uvicorn app.server.app:app --host 0.0.0.0 --port 6010 --reload
@@ -99,7 +105,7 @@ uvicorn app.server.app:app --host 0.0.0.0 --port 6010 --reload
 
 打开：<http://127.0.0.1:6010/>（托管 `webui/dist`；无构建产物时回退 `web/`）。
 
-### 3. 前端
+### 4. 前端
 
 ```powershell
 cd webui
@@ -109,7 +115,7 @@ npm run build          # 生产：由 6010 托管
 npm run dev            # http://127.0.0.1:5173 ，代理到 6010
 ```
 
-### 4. 冒烟
+### 5. 冒烟
 
 ```powershell
 python scripts\smoke_offline.py   # 路由 / 固定查询等离线检查
@@ -124,7 +130,7 @@ python scripts\smoke_basic.py     # 需服务已启动：slash 全链路
 
 | 项 | 说明 |
 |----|------|
-| `CH_*` | ClickHouse 连接（默认库 `lumenlearn`） |
+| `CH_*` | ClickHouse 连接（默认库 `lumenlearn`，与 `infra/docker-compose.yml` 一致） |
 | `LLM_PROVIDER` | `dashscope` / `deepseek` / `ark` / `ollama` / `openai` |
 | `LLM_API_*` | 可选总覆盖；非空则优先于各 Provider 专用项 |
 
@@ -145,6 +151,9 @@ python scripts\smoke_basic.py     # 需服务已启动：slash 全链路
 ## 目录速览
 
 ```
+infra/
+  docker-compose.yml  # 本地 ClickHouse
+  clickhouse_ddl.sql  # events + users
 app/
   bi/                 # 固定 SQL、指标与事件契约
   core/agent/         # 路由入口 + ReAct
@@ -153,16 +162,20 @@ app/
   core/session/       # 任务与进度
   server/             # FastAPI
 webui/                # Vue 问数台
-scripts/              # 冒烟脚本
+scripts/
+  generate_demo_data.py
+  smoke_*.py
+data/                 # 造数输出 CSV（可 gitignore）
 ```
 
 ---
 
-## 关联
+## 事件契约
 
-- 采集与 Demo 数据：`analysis`（分支 `demo/lumenlearn-opensource`）
-- 事件契约：`app/bi/events_dictionary.json`
+- `app/bi/events_dictionary.json`
+
+采集链路（Flume / Kafka / Flink）**不是**本仓运行依赖；问数 Demo 以「合成数据直写 CK」为主路径。
 
 ## 协议
 
-MIT（全新项目，无 GPL 衍生代码）。
+MIT。

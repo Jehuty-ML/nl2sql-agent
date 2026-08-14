@@ -1,0 +1,31 @@
+# LumenLearn Demo · ClickHouse（本仓自带，问数可独立运行）
+# 用法（在仓库根目录）：
+#   docker compose -f infra/docker-compose.yml up -d
+#   python scripts/generate_demo_data.py --seed 42 --to-clickhouse --truncate
+
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8
+    container_name: lumenlearn-clickhouse
+    ports:
+      - "8123:8123"   # HTTP
+      - "9000:9000"   # Native
+    environment:
+      CLICKHOUSE_DB: lumenlearn
+      CLICKHOUSE_USER: lumen
+      CLICKHOUSE_PASSWORD: lumen_demo
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    volumes:
+      - lumenlearn_ch_data:/var/lib/clickhouse
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8123/ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  lumenlearn_ch_data:
