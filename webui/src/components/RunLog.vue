@@ -19,6 +19,64 @@ const pinToBottom = ref(true);
 let ignoreScrollEvent = false;
 const NEAR_BOTTOM_PX = 48;
 
+const DRAWER_W_KEY = "lumen_query_bench_drawer_w_v1";
+const MIN_DRAWER_W = 360;
+const MAX_DRAWER_W = () => Math.min(1200, Math.floor(window.innerWidth - 48));
+const drawerW = ref(640);
+const resizingDrawer = ref(false);
+
+function loadDrawerWidth() {
+  try {
+    const n = Number(localStorage.getItem(DRAWER_W_KEY));
+    if (Number.isFinite(n) && n >= MIN_DRAWER_W) {
+      drawerW.value = Math.min(n, MAX_DRAWER_W());
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+function persistDrawerWidth() {
+  try {
+    localStorage.setItem(DRAWER_W_KEY, String(drawerW.value));
+  } catch {
+    /* ignore */
+  }
+}
+
+function clampDrawerW(n: number) {
+  return Math.min(MAX_DRAWER_W(), Math.max(MIN_DRAWER_W, Math.round(n)));
+}
+
+function startDrawerResize(e: PointerEvent) {
+  e.preventDefault();
+  e.stopPropagation();
+  resizingDrawer.value = true;
+  const target = e.currentTarget as HTMLElement;
+  target.setPointerCapture(e.pointerId);
+
+  const onMove = (ev: PointerEvent) => {
+    // 左边框：宽度 = 视口右缘 - 指针 x（扣掉 overlay padding）
+    const pad = 16;
+    drawerW.value = clampDrawerW(window.innerWidth - pad - ev.clientX);
+  };
+
+  const onUp = (ev: PointerEvent) => {
+    resizingDrawer.value = false;
+    target.releasePointerCapture(ev.pointerId);
+    target.removeEventListener("pointermove", onMove);
+    target.removeEventListener("pointerup", onUp);
+    target.removeEventListener("pointercancel", onUp);
+    persistDrawerWidth();
+  };
+
+  target.addEventListener("pointermove", onMove);
+  target.addEventListener("pointerup", onUp);
+  target.addEventListener("pointercancel", onUp);
+}
+
+loadDrawerWidth();
+
 /** 点开查看的全文抽屉（绑定当前 session，防串台） */
 const viewer = ref<{ sessionId: string; step: string; body: string } | null>(null);
 
@@ -229,8 +287,26 @@ onUnmounted(() => {
   </aside>
 
   <Teleport to="body">
-    <div v-if="viewerOpen && viewer" class="overlay" @click.self="closeViewer">
-      <div class="drawer" role="dialog" aria-modal="true">
+    <div
+      v-if="viewerOpen && viewer"
+      class="overlay"
+      :class="{ resizing: resizingDrawer }"
+      @click.self="closeViewer"
+    >
+      <div
+        class="drawer"
+        role="dialog"
+        aria-modal="true"
+        :style="{ width: drawerW + 'px' }"
+      >
+        <div
+          class="drawer-resizer"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="调整全文窗口宽度"
+          title="拖拽调整宽度"
+          @pointerdown="startDrawerResize"
+        />
         <header class="drawer-head">
           <div>
             <div class="drawer-kicker">Run Log · 完整内容</div>
@@ -407,8 +483,20 @@ ol {
   padding: 16px;
 }
 
+.overlay.resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
+.overlay.resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+
 .drawer {
+  position: relative;
   width: min(640px, 100%);
+  max-width: calc(100vw - 32px);
   max-height: 100%;
   background: #fffcf7;
   border: 1px solid var(--line);
@@ -417,6 +505,34 @@ ol {
   display: grid;
   grid-template-rows: auto 1fr;
   overflow: hidden;
+}
+
+.drawer-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -2px;
+  width: 10px;
+  z-index: 3;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.drawer-resizer::after {
+  content: "";
+  position: absolute;
+  top: 18%;
+  bottom: 18%;
+  left: 4px;
+  width: 3px;
+  border-radius: 3px;
+  background: transparent;
+  transition: background 0.15s ease;
+}
+
+.drawer-resizer:hover::after,
+.overlay.resizing .drawer-resizer::after {
+  background: var(--amber);
 }
 
 .drawer-head {
