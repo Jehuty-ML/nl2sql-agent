@@ -1,0 +1,151 @@
+"""应用配置（本地 .env；约定 多 LLM Provider）。"""
+
+from __future__ import annotations
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+# 与 内部参考实现 providers 默认值对齐的 OpenAI 兼容端点
+PROVIDER_DEFAULTS: dict[str, dict[str, str]] = {
+ "dashscope": {
+ "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+ "model": "qwen-plus",
+ },
+ "deepseek": {
+ "base_url": "https://api.deepseek.com/v1",
+ "model": "deepseek-chat",
+ },
+ "ark": {
+ "base_url": "https://ark.cn-beijing.volces.com/api/v3",
+ "model": "doubao-pro-32k",
+ },
+ "ollama": {
+ "base_url": "http://127.0.0.1:11434/v1",
+ "model": "qwen2.5:14b",
+ },
+ "openai": {
+ "base_url": "https://api.openai.com/v1",
+ "model": "gpt-4o-mini",
+ },
+}
+
+
+class Settings(BaseSettings):
+ """Demo 环境配置。环境变量名不区分大小写，如 DASHSCOPE_API_KEY。"""
+
+ model_config = SettingsConfigDict(
+ env_file=".env",
+ env_file_encoding="utf-8",
+ extra="ignore",
+ case_sensitive=False,
+ )
+
+ app_name: str = "lumen-query-agent-http"
+ app_port: int = 6010
+
+ ch_host: str = "127.0.0.1"
+ ch_port: int = 8123
+ ch_user: str = "lumen"
+ ch_password: str = "lumen_demo"
+ ch_database: str = "lumenlearn"
+
+ # 当前激活：dashscope | deepseek | ark | ollama | openai
+ llm_provider: str = "dashscope"
+
+ # 通用覆盖（非空则优先于 Provider 专用项）
+ llm_api_base: str = ""
+ llm_api_key: str = ""
+ llm_model: str = ""
+ llm_timeout: float = 180.0
+
+ dashscope_api_key: str = ""
+ dashscope_base_url: str = ""
+ dashscope_model: str = ""
+
+ deepseek_api_key: str = ""
+ deepseek_base_url: str = ""
+ deepseek_model: str = ""
+
+ ark_api_key: str = ""
+ ark_base_url: str = ""
+ ark_model: str = ""
+
+ ollama_api_key: str = "ollama"
+ ollama_base_url: str = ""
+ ollama_model: str = ""
+
+ openai_api_key: str = ""
+ openai_base_url: str = ""
+ openai_model: str = ""
+
+ def normalized_provider(self) -> str:
+ name = (self.llm_provider or "dashscope").strip().lower()
+ aliases = {
+ "qwen": "dashscope",
+ "bailian": "dashscope",
+ "doubao": "ark",
+ "volc": "ark",
+ "volcengine": "ark",
+ "deepseekllm": "deepseek",
+ }
+ name = aliases.get(name, name)
+ if name not in PROVIDER_DEFAULTS:
+ return "dashscope"
+ return name
+
+ def resolve_llm(self) -> dict[str, str | float | bool]:
+ """解析当前 Provider 的 base_url / api_key / model。"""
+ provider = self.normalized_provider()
+ defaults = PROVIDER_DEFAULTS[provider]
+
+ key_map = {
+ "dashscope": self.dashscope_api_key,
+ "deepseek": self.deepseek_api_key,
+ "ark": self.ark_api_key,
+ "ollama": self.ollama_api_key,
+ "openai": self.openai_api_key,
+ }
+ base_map = {
+ "dashscope": self.dashscope_base_url,
+ "deepseek": self.deepseek_base_url,
+ "ark": self.ark_base_url,
+ "ollama": self.ollama_base_url,
+ "openai": self.openai_base_url,
+ }
+ model_map = {
+ "dashscope": self.dashscope_model,
+ "deepseek": self.deepseek_model,
+ "ark": self.ark_model,
+ "ollama": self.ollama_model,
+ "openai": self.openai_model,
+ }
+
+ api_key = (self.llm_api_key or key_map[provider] or "").strip()
+ if provider == "ollama" and not api_key:
+ api_key = "ollama"
+
+ base_url = (
+ self.llm_api_base or base_map[provider] or defaults["base_url"]
+ ).strip().rstrip("/")
+ model = (self.llm_model or model_map[provider] or defaults["model"]).strip()
+
+ if provider == "ollama":
+ enabled = bool(base_url)
+ else:
+ enabled = bool(api_key and base_url)
+
+ return {
+ "provider": provider,
+ "base_url": base_url,
+ "api_key": api_key,
+ "model": model,
+ "timeout": float(self.llm_timeout),
+ "enabled": enabled,
+ }
+
+ @property
+ def llm_enabled(self) -> bool:
+ return bool(self.resolve_llm()["enabled"])
+
+
+settings = Settings()
