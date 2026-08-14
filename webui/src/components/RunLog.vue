@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onUnmounted, reactive, ref, watch } from "vue";
 import type { ProgressStep } from "../api";
-import { renderMarkdown } from "../markdown";
+import { renderFullContent } from "../pretty";
 
 const props = defineProps<{
   sessionId: string;
@@ -28,7 +28,7 @@ const viewerOpen = computed(
 
 const viewerHtml = computed(() => {
   if (!viewerOpen.value || !viewer.value) return "";
-  return renderMarkdown(viewer.value.body);
+  return renderFullContent(viewer.value.body, viewer.value.step);
 });
 
 function resetLocalUi() {
@@ -483,6 +483,12 @@ ol {
   margin: 0 0 6px;
 }
 
+.rich :deep(.md-muted) {
+  margin: 4px 0 0;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
 .rich :deep(.md-hr) {
   border: none;
   border-top: 1px solid var(--line);
@@ -493,11 +499,114 @@ ol {
   font-weight: 650;
 }
 
+.rich :deep(.meta-chips) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.rich :deep(.chip) {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: #eef3ea;
+  border: 1px solid #d5e0d0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #2f4034;
+}
+
+.rich :deep(.callout) {
+  padding: 10px 12px;
+  border-radius: 8px;
+  margin: 0 0 12px;
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
+.rich :deep(.callout.err) {
+  background: #fbf1f1;
+  border: 1px solid #e8c8c8;
+  color: #6b2e2e;
+}
+
+.rich :deep(.callout.hint) {
+  background: #fff8eb;
+  border: 1px solid #ebd7b0;
+  color: #5c4520;
+}
+
+.rich :deep(.code-block) {
+  margin: 8px 0 14px;
+  border: 1px solid #d8d3c8;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #1e2420;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.rich :deep(.code-bar) {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 10px;
+  background: #2a322c;
+  color: #c5d0c4;
+  font-size: 0.68rem;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.rich :deep(.code) {
+  margin: 0;
+  padding: 12px 14px;
+  overflow: auto;
+  max-height: min(52vh, 520px);
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: #e7eee6;
+  white-space: pre;
+}
+
+.rich :deep(.tok-kw) {
+  color: #7ec8ff;
+  font-weight: 650;
+}
+
+.rich :deep(.tok-str) {
+  color: #c6e59a;
+}
+
+.rich :deep(.tok-key) {
+  color: #9fd0ff;
+}
+
+.rich :deep(.tok-num) {
+  color: #f0c674;
+}
+
+.rich :deep(.tok-bool) {
+  color: #e8a0c8;
+}
+
+.rich :deep(.tok-cmt) {
+  color: #8a9688;
+  font-style: italic;
+}
+
+.rich :deep(.tok-punc) {
+  color: #aeb8ac;
+}
+
 .rich :deep(.table-scroll) {
   margin: 10px 0 14px;
   overflow-x: auto;
   border: 1px solid var(--line);
   border-radius: 8px;
+  background: #fff;
 }
 
 .rich :deep(table) {

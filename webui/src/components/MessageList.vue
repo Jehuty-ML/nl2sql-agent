@@ -142,6 +142,43 @@ pre {
   font-weight: 650;
 }
 
+.rich :deep(.code-block) {
+  margin: 8px 0 12px;
+  border: 1px solid #d8d3c8;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #1e2420;
+}
+
+.rich :deep(.code-bar) {
+  padding: 5px 10px;
+  background: #2a322c;
+  color: #c5d0c4;
+  font-size: 0.68rem;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+}
+
+.rich :deep(.code) {
+  margin: 0;
+  padding: 10px 12px;
+  overflow: auto;
+  max-height: 360px;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: #e7eee6;
+  white-space: pre;
+}
+
+.rich :deep(.tok-kw) { color: #7ec8ff; font-weight: 650; }
+.rich :deep(.tok-str) { color: #c6e59a; }
+.rich :deep(.tok-key) { color: #9fd0ff; }
+.rich :deep(.tok-num) { color: #f0c674; }
+.rich :deep(.tok-bool) { color: #e8a0c8; }
+.rich :deep(.tok-cmt) { color: #8a9688; font-style: italic; }
+.rich :deep(.tok-punc) { color: #aeb8ac; }
+
 .rich :deep(.table-scroll) {
   margin: 8px 0 10px;
   overflow-x: auto;
