@@ -1,0 +1,8 @@
+<!-- 只读 profile；账号 lumen_ro 由造数脚本 / init_readonly.sql 创建并 GRANT SELECT -->
+<clickhouse>
+  <profiles>
+    <lumen_readonly>
+      <readonly>1</readonly>
+    </lumen_readonly>
+  </profiles>
+</clickhouse>

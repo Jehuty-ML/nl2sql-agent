@@ -11,11 +11,15 @@ docker compose -f infra/docker-compose.yml up -d
 python .\scripts\generate_demo_data.py --seed 42 --to-clickhouse --truncate
 ```
 
-默认连接（与 `.env.example` 一致）：
+默认连接：
 
-- URL: `http://127.0.0.1:8123`
-- 用户/密码: `lumen` / `lumen_demo`
-- 库表: `lumenlearn.events` / `lumenlearn.users`
+| 用途 | 用户 | 密码 |
+|------|------|------|
+| **造数脚本（管理）** | `lumen` | `lumen_demo` |
+| **问数 Agent（只读）** | `lumen_ro` | `lumen_ro_demo` |
+
+库表：`lumenlearn.events` / `lumenlearn.users`。  
+Agent `.env` 必须用只读账号；脚本默认用管理账号灌数，并执行 `infra/init_readonly.sql` 创建 `lumen_ro`。
 
 脚本会自动执行 `infra/clickhouse_ddl.sql` 建库建表。
 

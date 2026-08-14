@@ -54,13 +54,19 @@ TOOL_SCHEMAS = [
         "function": {
             "name": "db_query",
             "description": (
-                "对 ClickHouse lumenlearn 库执行只读 SQL。"
+                "对 ClickHouse lumenlearn 库执行【只读】SELECT / WITH 查询。"
+                "禁止 INSERT/UPDATE/DELETE/DDL/多语句；工具层与数据库只读账号会拒绝写操作。"
                 "users 渠道列名为 register_channel（不是 channel）；"
                 "标准口径优先与 fixed analysis 一致。"
             ),
             "parameters": {
                 "type": "object",
-                "properties": {"sql": {"type": "string"}},
+                "properties": {
+                    "sql": {
+                        "type": "string",
+                        "description": "只读 SQL：必须以 SELECT 或 WITH 开头的单条查询。",
+                    }
+                },
                 "required": ["sql"],
             },
         },
@@ -83,7 +89,8 @@ TOOL_SCHEMAS = [
 ]
 
 SYSTEM_PROMPT = """你是 LumenLearn 学习社区的数据分析智能体（ReAct 工具循环）。
-只能使用工具查询 ClickHouse（events/users），禁止编造数字。
+只能使用工具【只读】查询 ClickHouse（events/users），禁止编造数字。
+【只读硬约束】db_query 只能发 SELECT / WITH … SELECT；禁止 INSERT/UPDATE/DELETE/DROP/TRUNCATE/ALTER/CREATE 等任何写库或 DDL；禁止一次提交多条语句。写操作会被工具与数据库拒绝。
 标准指标优先调用 get_fixed_analysis；需要下钻时再用 db_query。
 Demo 数据业务日仅在 2026-05-04 ~ 2026-08-01。调用 get_fixed_analysis 时**默认不要传 start_date/end_date**（省略即用该窗口）；禁止臆造 2024/2025 日期。
 表字段（勿臆造列名）：

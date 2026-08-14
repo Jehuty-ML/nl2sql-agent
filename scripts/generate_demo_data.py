@@ -30,6 +30,7 @@ from typing import Iterable
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUT = ROOT / "data"
 DDL_PATH = ROOT / "infra" / "clickhouse_ddl.sql"
+READONLY_SQL_PATH = ROOT / "infra" / "init_readonly.sql"
 
 PATHS = [
     ("path_python_01", "Python 入门", "backend"),
@@ -417,11 +418,8 @@ def ch_query(
         raise RuntimeError(f"ClickHouse 请求失败: {e}") from e
 
 
-def apply_ddl(base_url: str, user: str, password: str) -> None:
-    if not DDL_PATH.exists():
-        raise FileNotFoundError(f"找不到 DDL: {DDL_PATH}")
-    text = DDL_PATH.read_text(encoding="utf-8")
-    # 去掉注释，按分号拆语句
+def _split_sql_file(path: Path) -> list[str]:
+    text = path.read_text(encoding="utf-8")
     stmts: list[str] = []
     buf: list[str] = []
     for line in text.splitlines():
@@ -434,17 +432,40 @@ def apply_ddl(base_url: str, user: str, password: str) -> None:
             buf = []
             if stmt:
                 stmts.append(stmt)
-    for stmt in stmts:
-        # DDL 不走 database= 默认库时，用无 database 参数更稳
-        q = urllib.parse.urlencode({"query": stmt})
-        url = f"{base_url.rstrip('/')}/?{q}"
-        req = urllib.request.Request(url, method="POST")
-        import base64
+    return stmts
 
-        auth = base64.b64encode(f"{user}:{password}".encode("utf-8")).decode("ascii")
-        req.add_header("Authorization", f"Basic {auth}")
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            resp.read()
+
+def _exec_admin_sql(base_url: str, user: str, password: str, stmt: str) -> None:
+    import base64
+
+    q = urllib.parse.urlencode({"query": stmt})
+    url = f"{base_url.rstrip('/')}/?{q}"
+    req = urllib.request.Request(url, method="POST")
+    auth = base64.b64encode(f"{user}:{password}".encode("utf-8")).decode("ascii")
+    req.add_header("Authorization", f"Basic {auth}")
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        resp.read()
+
+
+def apply_ddl(base_url: str, user: str, password: str) -> None:
+    if not DDL_PATH.exists():
+        raise FileNotFoundError(f"找不到 DDL: {DDL_PATH}")
+    for stmt in _split_sql_file(DDL_PATH):
+        _exec_admin_sql(base_url, user, password, stmt)
+
+
+def ensure_readonly_user(base_url: str, user: str, password: str) -> None:
+    """创建 Agent 专用只读账号 lumen_ro（SETTINGS readonly=1 + GRANT SELECT）。"""
+    if not READONLY_SQL_PATH.exists():
+        print(f"[CH] 跳过只读账号：找不到 {READONLY_SQL_PATH}")
+        return
+    for stmt in _split_sql_file(READONLY_SQL_PATH):
+        try:
+            _exec_admin_sql(base_url, user, password, stmt)
+            print(f"[CH] 只读账号 SQL OK: {stmt.split()[0:4]}")
+        except Exception as e:
+            # 已存在 / 无权限时不阻断灌数；Agent 仍有工具层 + settings.readonly=1
+            print(f"[CH] 只读账号步骤跳过: {e}")
 
 
 def import_csv_http(
@@ -548,14 +569,15 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[CH] 连接 {args.ch_url} …")
         try:
             apply_ddl(args.ch_url, args.ch_user, args.ch_password)
+            ensure_readonly_user(args.ch_url, args.ch_user, args.ch_password)
             if args.truncate:
-                ch_query(
+                _exec_admin_sql(
                     args.ch_url,
                     args.ch_user,
                     args.ch_password,
                     "TRUNCATE TABLE IF EXISTS lumenlearn.events",
                 )
-                ch_query(
+                _exec_admin_sql(
                     args.ch_url,
                     args.ch_user,
                     args.ch_password,

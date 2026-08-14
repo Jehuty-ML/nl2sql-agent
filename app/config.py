@@ -45,8 +45,9 @@ class Settings(BaseSettings):
 
     ch_host: str = "127.0.0.1"
     ch_port: int = 8123
-    ch_user: str = "lumen"
-    ch_password: str = "lumen_demo"
+    # 默认只用只读账号；灌数请用 scripts/generate_demo_data.py（管理账号 lumen）
+    ch_user: str = "lumen_ro"
+    ch_password: str = "lumen_ro_demo"
     ch_database: str = "lumenlearn"
 
     # 当前激活：dashscope | deepseek | ark | ollama | openai

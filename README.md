@@ -32,7 +32,7 @@ LumenLearn（流明学堂）问数台 · 自然语言数据分析 Agent（求职
 | 工具 | 作用 |
 |------|------|
 | `get_fixed_analysis` | 跑注册好的标准指标 SQL（可带日期窗） |
-| `db_query` | 自定义 ClickHouse SQL 下钻（有行数上限与字段 hint） |
+| `db_query` | 只读 SQL 下钻（SELECT/WITH；工具层 + CK 只读账号双重拦截） |
 | `export_report` | 导出结构化分析报告（Markdown / 表格） |
 
 进度流会拆成 **思考 / 调工具 / 观察**，便于对照 ReAct 过程。
@@ -57,6 +57,20 @@ LumenLearn（流明学堂）问数台 · 自然语言数据分析 Agent（求职
 | `/help` | 指令说明 |
 
 别名示例：`/日活` → `/dau`，`/today_dashboard` → `/overview`。
+
+### 只读安全（生产级三道防线）
+
+问数路径**禁止写库 / 污染 Demo 数据**，相对常见「仅应用层黑名单」做法，本仓叠了三层：
+
+| 层 | 做法 |
+|----|------|
+| **模型层** | System Prompt + `db_query` 工具 schema 明确：仅 `SELECT` / `WITH … SELECT`，禁止写操作与多语句 |
+| **工具层** | `sql_guard`：语句白名单、禁多语句、禁 DDL/DML/权限/SYSTEM 等关键字；缺省自动补 `LIMIT` |
+| **数据仓库** | Agent 默认账号 `lumen_ro`（`SETTINGS readonly=1` + `GRANT SELECT`）；会话再带 `settings.readonly=1` |
+
+管理账号 `lumen` / `lumen_demo` **仅**用于 `scripts/generate_demo_data.py` 建表灌数，不要写进 Agent 的 `.env`。
+
+造数时会执行 `infra/init_readonly.sql` 尝试创建只读账号。若你沿用旧容器，跑一次带 `--to-clickhouse` 的造数即可补齐账号。
 
 ---
 
@@ -92,7 +106,7 @@ docker compose -f infra/docker-compose.yml up -d
 python .\scripts\generate_demo_data.py --seed 42 --to-clickhouse --truncate
 ```
 
-默认账号与 `.env.example` 一致：`lumen` / `lumen_demo`，库 `lumenlearn`。  
+默认账号：造数用管理账号 `lumen` / `lumen_demo`；Agent `.env` 用只读账号 `lumen_ro` / `lumen_ro_demo`（见 `.env.example`）。  
 更多造数参数见 [`scripts/README.md`](scripts/README.md)。
 
 Demo 业务日大致在 **2026-05-04 ~ 2026-08-01**；Agent 默认日期窗会落在该区间。
@@ -130,7 +144,8 @@ python scripts\smoke_basic.py     # 需服务已启动：slash 全链路
 
 | 项 | 说明 |
 |----|------|
-| `CH_*` | ClickHouse 连接（默认库 `lumenlearn`，与 `infra/docker-compose.yml` 一致） |
+| `CH_USER` / `CH_PASSWORD` | **必须**为只读账号 `lumen_ro` / `lumen_ro_demo` |
+| `CH_HOST` / `CH_PORT` / `CH_DATABASE` | 默认 `127.0.0.1:8123` / `lumenlearn` |
 | `LLM_PROVIDER` | `dashscope` / `deepseek` / `ark` / `ollama` / `openai` |
 | `LLM_API_*` | 可选总覆盖；非空则优先于各 Provider 专用项 |
 
@@ -152,20 +167,22 @@ python scripts\smoke_basic.py     # 需服务已启动：slash 全链路
 
 ```
 infra/
-  docker-compose.yml  # 本地 ClickHouse
-  clickhouse_ddl.sql  # events + users
+  docker-compose.yml
+  clickhouse_ddl.sql
+  init_readonly.sql          # 创建 lumen_ro + GRANT SELECT
+  clickhouse/users.d/        # readonly profile
 app/
-  bi/                 # 固定 SQL、指标与事件契约
-  core/agent/         # 路由入口 + ReAct
-  core/routing/       # slash 前置拦截
-  core/tools/         # get_fixed_analysis / db_query / export_report
-  core/session/       # 任务与进度
-  server/             # FastAPI
-webui/                # Vue 问数台
+  bi/
+  core/agent/
+  core/routing/
+  core/tools/                # sql_guard + clickhouse（readonly=1）
+  core/session/
+  server/
+webui/
 scripts/
-  generate_demo_data.py
+  generate_demo_data.py      # 管理账号灌数 + 确保只读用户
   smoke_*.py
-data/                 # 造数输出 CSV（可 gitignore）
+data/
 ```
 
 ---

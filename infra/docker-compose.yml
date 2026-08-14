@@ -2,6 +2,10 @@
 # 用法（在仓库根目录）：
 #   docker compose -f infra/docker-compose.yml up -d
 #   python scripts/generate_demo_data.py --seed 42 --to-clickhouse --truncate
+#
+# 账号：
+#   lumen / lumen_demo     — 管理（仅造数脚本使用）
+#   lumen_ro / lumen_ro_demo — Agent 只读（profile.readonly=1）
 
 services:
   clickhouse:
@@ -17,6 +21,7 @@ services:
       CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
     volumes:
       - lumenlearn_ch_data:/var/lib/clickhouse
+      - ./clickhouse/users.d:/etc/clickhouse-server/users.d:ro
     ulimits:
       nofile:
         soft: 262144
