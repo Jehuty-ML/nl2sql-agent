@@ -30,6 +30,76 @@ function splitCells(line: string): string[] {
 const SQL_KW =
   /\b(SELECT|FROM|WHERE|AND|OR|NOT|IN|AS|WITH|JOIN|LEFT|RIGHT|INNER|OUTER|ON|GROUP|BY|ORDER|LIMIT|HAVING|UNION|ALL|DISTINCT|CASE|WHEN|THEN|ELSE|END|INSERT|INTO|VALUES|UPDATE|SET|DELETE|CREATE|TABLE|VIEW|IF|EXISTS|BETWEEN|LIKE|IS|NULL|TRUE|FALSE|COUNT|SUM|AVG|MIN|MAX|CAST|COALESCE|IFNULL|INTERVAL|DATE|DATETIME|TODATE|ADDDAYS|COUNTDISTINCT|COUNTDISTINCTIF|ARRAYJOIN|FINAL|PREWHERE|SETTINGS|FORMAT|OVER|PARTITION|ROW_NUMBER|RANK)\b/gi;
 
+/** 把挤成一行的 SQL 按关键字断行，便于阅读 */
+function formatSql(sql: string): string {
+  let s = sql.replace(/\r\n/g, "\n").trim();
+  // 已有较完整换行则只做空白收敛
+  const nl = (s.match(/\n/g) || []).length;
+  if (nl >= 3 && s.length / (nl + 1) < 120) {
+    return s.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n");
+  }
+  // 压成空格，再在关键字前断行（避开字符串字面量）
+  const parts: string[] = [];
+  let i = 0;
+  let buf = "";
+  const pushBuf = () => {
+    if (buf) parts.push(buf);
+    buf = "";
+  };
+  while (i < s.length) {
+    const ch = s[i];
+    if (ch === "'") {
+      let j = i + 1;
+      while (j < s.length) {
+        if (s[j] === "'" && s[j + 1] === "'") {
+          j += 2;
+          continue;
+        }
+        if (s[j] === "'") {
+          j += 1;
+          break;
+        }
+        j += 1;
+      }
+      buf += s.slice(i, j);
+      i = j;
+      continue;
+    }
+    buf += ch;
+    i += 1;
+  }
+  pushBuf();
+
+  const BREAK_BEFORE =
+    /\b(WITH|SELECT|FROM|WHERE|AND|OR|LEFT\s+JOIN|RIGHT\s+JOIN|INNER\s+JOIN|FULL\s+JOIN|JOIN|GROUP\s+BY|ORDER\s+BY|HAVING|LIMIT|UNION(?:\s+ALL)?|SETTINGS|PREWHERE|FORMAT)\b/gi;
+
+  let flat = parts.join("").replace(/\s+/g, " ").trim();
+  flat = flat.replace(BREAK_BEFORE, (m, _g, offset: number) =>
+    offset === 0 ? m.toUpperCase() : `\n${m.toUpperCase()}`
+  );
+  // 逗号后适度断行（长列表）
+  flat = flat.replace(/,(?!\n)\s*/g, ",\n  ");
+  // 清理 "\n  \n" 与关键字行缩进
+  const lines = flat.split("\n").map((ln) => ln.trimEnd());
+  const out: string[] = [];
+  for (const ln of lines) {
+    const t = ln.trim();
+    if (!t) continue;
+    if (
+      /^(WITH|SELECT|FROM|WHERE|AND|OR|JOIN|LEFT|RIGHT|INNER|FULL|GROUP|ORDER|HAVING|LIMIT|UNION|SETTINGS|PREWHERE|FORMAT)\b/i.test(
+        t
+      )
+    ) {
+      out.push(t);
+    } else if (t.startsWith(",")) {
+      out.push("  " + t);
+    } else {
+      out.push("  " + t);
+    }
+  }
+  return out.join("\n");
+}
+
 function highlightSql(src: string): string {
   let s = esc(src);
   // comments
@@ -38,7 +108,6 @@ function highlightSql(src: string): string {
   s = s.replace(/('(?:\\'|[^'])*')/g, '<span class="tok-str">$1</span>');
   // numbers
   s = s.replace(/\b(\d+(?:\.\d+)?)\b/g, '<span class="tok-num">$1</span>');
-  // keywords (avoid replacing inside spans by doing keywords first on raw then... simpler: keywords on escaped, then wrap)
   s = s.replace(SQL_KW, (m) => `<span class="tok-kw">${m.toUpperCase()}</span>`);
   return s;
 }
@@ -70,17 +139,19 @@ function highlightJson(src: string): string {
 }
 
 function codeBlock(code: string, lang: string, label?: string): string {
+  const prepared = lang === "sql" ? formatSql(code) : code;
   const body =
     lang === "sql"
-      ? highlightSql(code)
+      ? highlightSql(prepared)
       : lang === "json"
-        ? highlightJson(code)
-        : esc(code);
+        ? highlightJson(prepared)
+        : esc(prepared);
   const tag = label || lang.toUpperCase();
+  const wrapClass = lang === "sql" ? "code wrap" : "code";
   return (
     `<div class="code-block" data-lang="${esc(lang)}">` +
     `<div class="code-bar"><span>${esc(tag)}</span></div>` +
-    `<pre class="code"><code>${body}</code></pre></div>`
+    `<pre class="${wrapClass}"><code>${body}</code></pre></div>`
   );
 }
 

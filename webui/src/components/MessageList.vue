@@ -166,9 +166,16 @@ pre {
   max-height: 360px;
   font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
   font-size: 0.78rem;
-  line-height: 1.5;
+  line-height: 1.55;
   color: #e7eee6;
   white-space: pre;
+}
+
+.rich :deep(.code.wrap),
+.rich :deep(.code-block[data-lang="sql"] .code) {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .rich :deep(.tok-kw) { color: #7ec8ff; font-weight: 650; }
