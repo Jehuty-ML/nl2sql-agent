@@ -26,7 +26,9 @@ defineEmits<{
         @click="$emit('select', s.id)"
       >
         <span class="title">{{ s.title }}</span>
-        <span class="meta">{{ s.status }}</span>
+        <span class="meta" :class="{ running: s.status === 'running' }">
+          {{ s.status === "running" ? "生成中…" : s.status }}
+        </span>
         <button
           class="x"
           type="button"
@@ -109,6 +111,13 @@ defineEmits<{
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
+}
+
+.meta.running {
+  color: var(--amber-deep);
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 600;
 }
 
 .x {

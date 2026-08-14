@@ -6,12 +6,12 @@ const emit = defineEmits<{ send: [query: string] }>();
 
 const text = ref("");
 const hints = [
-  { label: "/dau 日活", q: "/dau" },
-  { label: "/funnel 漏斗", q: "/funnel" },
-  { label: "/retention 留存", q: "/retention" },
-  { label: "/channel 渠道", q: "/channel" },
-  { label: "/overview 概览", q: "/overview" },
-  { label: "/help", q: "/help" },
+  { label: "/dau", q: "/dau", tip: "日活（不经 LLM）" },
+  { label: "/funnel", q: "/funnel", tip: "学习漏斗" },
+  { label: "/retention", q: "/retention", tip: "注册留存" },
+  { label: "/channel", q: "/channel", tip: "渠道完课" },
+  { label: "/overview", q: "/overview", tip: "学习概览" },
+  { label: "/help", q: "/help", tip: "指令帮助" },
 ];
 
 function submit() {
@@ -37,16 +37,22 @@ function onKey(e: KeyboardEvent) {
         :key="h.label"
         type="button"
         :disabled="disabled"
+        :title="h.tip"
         @click="emit('send', h.q)"
       >
-        {{ h.label }}
+        <code>{{ h.label }}</code>
+        <small>{{ h.tip }}</small>
       </button>
     </div>
     <div class="row">
       <textarea
         v-model="text"
         rows="3"
-        placeholder="描述你想看的指标或对比…"
+        :placeholder="
+          disabled
+            ? '本会话生成中…可切换左侧其它会话继续提问'
+            : '描述你想看的指标或对比…'
+        "
         :disabled="disabled"
         @keydown="onKey"
       />
@@ -77,9 +83,27 @@ function onKey(e: KeyboardEvent) {
   background: #fff8eb;
   color: var(--amber-deep);
   border-radius: 8px;
-  padding: 4px 12px;
+  padding: 6px 10px;
   font-size: 0.8rem;
   font-weight: 500;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  line-height: 1.2;
+}
+
+.hints button code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: var(--oak);
+}
+
+.hints button small {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 400;
 }
 
 .hints button:hover:not(:disabled) {

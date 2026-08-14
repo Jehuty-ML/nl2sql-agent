@@ -275,17 +275,18 @@
       <section class="chat-panel" aria-label="对话区">
         <div id="messages">
           <div class="msg system">
-            试试：「最近日活怎么样」「学习漏斗」「次日留存」「渠道完课」「概览」。
-            无 LLM Key 时走固定分析；数值来自工具查询，不编造。
+            固定分析请点下方 slash（/dau /funnel /retention /channel /overview）。
+            中文自然语言会进入 Agent（需 LLM）。
           </div>
         </div>
         <div class="composer">
           <div class="hints">
-            <button type="button" data-q="最近日活怎么样">日活</button>
-            <button type="button" data-q="学习漏斗掉点在哪">漏斗</button>
-            <button type="button" data-q="次日留存如何">留存</button>
-            <button type="button" data-q="按渠道看完课">渠道</button>
-            <button type="button" data-q="给一个学习概览">概览</button>
+            <button type="button" data-q="/dau">/dau</button>
+            <button type="button" data-q="/funnel">/funnel</button>
+            <button type="button" data-q="/retention">/retention</button>
+            <button type="button" data-q="/channel">/channel</button>
+            <button type="button" data-q="/overview">/overview</button>
+            <button type="button" data-q="/help">/help</button>
           </div>
           <div class="row">
             <textarea id="input" placeholder="输入分析问题…" rows="3"></textarea>
