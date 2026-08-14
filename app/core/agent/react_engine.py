@@ -34,7 +34,9 @@ TOOL_SCHEMAS = [
             "name": "get_fixed_analysis",
             "description": (
                 "执行已注册的标准固定分析。仅当用户问题明确对应这些分析时使用。"
-                f"可选 key: {list(FIXED_QUERIES.keys())}"
+                f"可选 key: {list(FIXED_QUERIES.keys())}。"
+                "默认不要传 start_date/end_date（省略则使用 Demo 窗口 2026-07~2026-08）；"
+                "仅当用户明确指定日期时才传入，且必须落在 2026-05-04~2026-08-01。"
             ),
             "parameters": {
                 "type": "object",
@@ -51,7 +53,11 @@ TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "db_query",
-            "description": "对 ClickHouse lumenlearn 库执行只读 SQL。标准口径优先与 fixed analysis 一致。",
+            "description": (
+                "对 ClickHouse lumenlearn 库执行只读 SQL。"
+                "users 渠道列名为 register_channel（不是 channel）；"
+                "标准口径优先与 fixed analysis 一致。"
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {"sql": {"type": "string"}},
@@ -78,9 +84,14 @@ TOOL_SCHEMAS = [
 
 SYSTEM_PROMPT = """你是 LumenLearn 学习社区的数据分析智能体。
 只能使用工具查询 ClickHouse（events/users），禁止编造数字。
-标准经营/学习指标优先调用 get_fixed_analysis；需要下钻时再用 db_query。
+标准指标优先调用 get_fixed_analysis；需要下钻时再用 db_query。
+Demo 数据业务日仅在 2026-05-04 ~ 2026-08-01。调用 get_fixed_analysis 时**默认不要传 start_date/end_date**（省略即用该窗口）；禁止臆造 2024/2025 日期。
+表字段（勿臆造列名）：
+- users: distinct_id, login_id, register_dt, register_channel, app_id, last_active_dt
+- events: distinct_id, identity_login_id, event, dt, app_id, lib, path_id, lesson_id, register_channel, …
+渠道字段是 register_channel（不是 channel）。工具若返回 ok=false，请根据 error/hint 改写 SQL 再查，不要直接放弃。
 口径：DAU=屏浏览且登录 ID 非空；留存=SignUp cohort + 次日/七日屏浏览；漏斗=浏览路径→开课→完课→交练习。
-最终用中文简要解读，并引用工具返回的数值。
+最终用中文简要解读，并引用工具返回的数值。若用户问「如何提高留存」，先用 get_fixed_analysis(key=retention) 拿到现状，再结合漏斗/渠道数据给可执行建议。
 """
 
 
@@ -231,7 +242,18 @@ def _run_llm_react(task_id: str, query: str) -> dict[str, Any]:
                 if fn not in TOOLS:
                     result = json.dumps({"ok": False, "error": f"未知工具 {fn}"}, ensure_ascii=False)
                 else:
-                    result = TOOLS[fn](**args)
+                    try:
+                        result = TOOLS[fn](**args)
+                    except TypeError as e:
+                        result = json.dumps(
+                            {"ok": False, "error": f"工具参数错误: {e}", "args": args},
+                            ensure_ascii=False,
+                        )
+                    except Exception as e:
+                        result = json.dumps(
+                            {"ok": False, "error": f"工具执行异常: {e}"},
+                            ensure_ascii=False,
+                        )
                 tool_traces.append({"tool": fn, "args": args, "result_preview": result[:800]})
                 save_evidence(task_id, f"tool_{round_i}_{fn}", {"args": args, "result": result})
                 messages.append(

@@ -29,7 +29,7 @@ def run_fixed_analysis(
     meta = FIXED_QUERIES[key]
     sql = render_sql(meta["sql"], start_date, end_date)
     result = run_query(sql)
-    return {
+    out: dict[str, Any] = {
         "ok": result.get("ok", False),
         "analysis_key": key,
         "name": meta["name"],
@@ -38,6 +38,14 @@ def run_fixed_analysis(
         "end_date": end_date,
         **result,
     }
+    # 防止模型瞎编日期导致空结果后空转多轮
+    if out.get("ok") and int(out.get("row_count") or 0) == 0:
+        demo_start, demo_end = default_date_range()
+        out["hint"] = (
+            f"当前区间无数据。Demo 数据在 2026-05-04~2026-08-01；"
+            f"请省略日期参数重试（默认 {demo_start}~{demo_end}），勿使用 2024/2025。"
+        )
+    return out
 
 
 def tool_get_fixed_analysis(key: str, start_date: str = "", end_date: str = "") -> str:
