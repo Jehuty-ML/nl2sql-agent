@@ -1,0 +1,95 @@
+{
+  "product": "LumenLearn",
+  "version": "1.0.0",
+  "updated": "2026-08-13",
+  "analytics_db": "clickhouse",
+  "data_policy": "synthetic_demo_only",
+  "events": [
+    {
+      "name": "SignUp",
+      "description": "注册成功",
+      "properties": ["register_channel"]
+    },
+    {
+      "name": "$AppViewScreen",
+      "description": "App 屏浏览，用于 DAU/活跃",
+      "properties": ["$screen_name", "$identity_login_id", "$title"]
+    },
+    {
+      "name": "$MPViewScreen",
+      "description": "小程序屏浏览，用于 DAU/活跃",
+      "properties": ["$screen_name", "$identity_login_id", "$title"]
+    },
+    {
+      "name": "ViewLearningPath",
+      "description": "浏览学习路径",
+      "properties": ["path_id", "path_name", "path_category"]
+    },
+    {
+      "name": "StartLesson",
+      "description": "开始课时",
+      "properties": ["path_id", "path_name", "lesson_id", "lesson_name", "lesson_index"]
+    },
+    {
+      "name": "CompleteLesson",
+      "description": "完成课时",
+      "properties": ["path_id", "path_name", "lesson_id", "lesson_name", "lesson_index", "duration"]
+    },
+    {
+      "name": "SubmitExercise",
+      "description": "提交练习",
+      "properties": ["path_id", "lesson_id", "exercise_id", "is_passed", "duration"]
+    },
+    {
+      "name": "JoinChallenge",
+      "description": "加入打卡挑战",
+      "properties": ["challenge_id", "challenge_name", "challenge_days"]
+    },
+    {
+      "name": "ShareProgress",
+      "description": "分享学习进度",
+      "properties": ["share_type", "path_id", "lesson_id", "challenge_id"]
+    }
+  ],
+  "common_properties": [
+    "distinct_id",
+    "anonymous_id",
+    "$identity_login_id",
+    "event",
+    "time",
+    "dt",
+    "$app_id",
+    "$lib",
+    "$screen_name",
+    "$title",
+    "$network_type"
+  ],
+  "core_tables": ["events", "users"],
+  "users_table": {
+    "name": "users",
+    "fields": [
+      "distinct_id",
+      "login_id",
+      "register_dt",
+      "register_channel",
+      "app_id",
+      "last_active_dt"
+    ],
+    "join_key": "distinct_id"
+  },
+  "optional_dimension_tables": [
+    "ll_learning_path",
+    "ll_lesson",
+    "ll_exercise_attempt",
+    "ll_challenge"
+  ],
+  "metrics": {
+    "DAU": "当日 $AppViewScreen/$MPViewScreen 且 $identity_login_id 非空，按登录 ID 去重",
+    "new_learners": "当日 SignUp 按 distinct_id 去重",
+    "completion_rate": "CompleteLesson 次数 / StartLesson 次数",
+    "exercise_conversion": "SubmitExercise UV / CompleteLesson UV",
+    "funnel": "ViewLearningPath -> StartLesson -> CompleteLesson -> SubmitExercise",
+    "retention_d1": "SignUp cohort 在 reg_date+1 有屏浏览",
+    "retention_d7": "SignUp cohort 在 reg_date+7 有屏浏览"
+  }
+}
