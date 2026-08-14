@@ -1,27 +1,27 @@
 # lumen-query-agent
 
-自然语言数据分析 Agent · 求职 / 开源 Demo（问数台）。
+自然语言数据分析 Agent（问数台）：slash 固定分析 + ReAct 工具循环 + 只读查数。
 
-**LumenLearn（流明学堂）是虚构业务**：合成学习社区数据与固定指标只为方便端到端演示，不是真实产品或生产库。  
-**可替换数据源做分析**：把 ClickHouse 连接、表结构 / 事件字典、`FIXED_QUERIES` 换成你自己的库与口径，同一套 slash + ReAct + 只读防护仍可复用。
+**LumenLearn（流明学堂）为示例业务域**：虚构学习社区与可复现合成数据，用来跑通端到端流程；不是真实产品或生产环境。  
+**分析能力与库可解耦**：更换 ClickHouse 连接、表结构 / 事件字典、`FIXED_QUERIES` 后，同一套路由、Agent、只读防护与 UI 可接到你自己的数据上。
 
-当前 Demo 自带 ClickHouse（`events` + `users`）与造数脚本，clone 后可独立跑通，提供：
+本仓附带本地 ClickHouse（`events` + `users`）与造数脚本，开箱可跑：
 
 - **固定分析 slash**：不经过 LLM，稳定出表
 - **自然语言 Agent**：ReAct 调工具，交付「结论 + 数据 + 运营建议」
 - **Vue 问数台**：会话、进度、表格与 SQL/JSON 全文美化
 
-> 数据声明：Synthetic Demo Only · No PII。
+> 样本数据：Synthetic · No PII · 可复现 seed。
 
 ---
 
 ## 能力一览
 
-### 演示域 vs 可迁移能力
+### 示例业务域 vs 可迁移能力
 
 | | 说明 |
 |--|------|
-| **演示域（可整换）** | LumenLearn 叙事、合成 `events`/`users`、`/dau` 等固定 SQL、造数脚本 |
+| **示例业务域（可整换）** | LumenLearn 叙事、合成 `events`/`users`、`/dau` 等固定 SQL、造数脚本 |
 | **可迁移能力（项目重点）** | slash / Agent 双通道、只读三道防线、ReAct 工具循环、问数台 UI、报告导出 |
 
 换库时通常改：`.env` 的 `CH_*`、`infra/` DDL（或指向已有库）、`app/bi/` 字典与固定查询、以及 Prompt 中的表字段说明。
@@ -70,7 +70,7 @@
 
 ### 只读安全（生产级三道防线）
 
-问数路径**禁止写库 / 污染 Demo 数据**，相对常见「仅应用层黑名单」做法，本仓叠了三层：
+问数路径**禁止写库 / 污染样本数据**，相对常见「仅应用层黑名单」做法，本仓叠了三层：
 
 | 层 | 做法 |
 |----|------|
@@ -107,7 +107,7 @@ pip install -r requirements.txt
 copy .env.example .env
 ```
 
-### 2. 启动 ClickHouse 并灌入 Demo 数据
+### 2. 启动 ClickHouse 并灌入样本数据
 
 需本机已安装 Docker。
 
@@ -119,7 +119,7 @@ python .\scripts\generate_demo_data.py --seed 42 --to-clickhouse --truncate
 默认账号：造数用管理账号 `lumen` / `lumen_demo`；Agent `.env` 用只读账号 `lumen_ro` / `lumen_ro_demo`（见 `.env.example`）。  
 更多造数参数见 [`scripts/README.md`](scripts/README.md)。
 
-Demo 业务日大致在 **2026-05-04 ~ 2026-08-01**；Agent 默认日期窗会落在该区间。
+样本业务日大致在 **2026-05-04 ~ 2026-08-01**；Agent 默认日期窗会落在该区间。
 
 ### 3. 启动后端
 
@@ -201,7 +201,11 @@ data/
 
 - `app/bi/events_dictionary.json`
 
-采集链路（Flume / Kafka / Flink）**不是**本仓运行依赖；问数 Demo 以「合成数据直写 CK」为主路径。
+采集链路（Flume / Kafka / Flink）**不是**本仓运行依赖；默认以「合成数据直写 CK」跑通问数主路径。
+
+## 免责声明
+
+Agent（尤其自然语言路径）生成的结论、解读与运营建议**可能存在幻觉、口径偏差或过度外推**。请以工具返回的查询结果与固定分析报表为准，重要决策前务必多渠道核实，勿仅依赖模型叙述自动执行。
 
 ## 协议
 

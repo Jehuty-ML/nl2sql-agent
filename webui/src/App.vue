@@ -15,7 +15,7 @@ import MessageList from "./components/MessageList.vue";
 import Composer from "./components/Composer.vue";
 import RunLog from "./components/RunLog.vue";
 
-const STORAGE_KEY = "lumen_query_bench_sessions_v3";
+const STORAGE_KEY = "lumen_query_bench_sessions_v4";
 const LAYOUT_KEY = "lumen_query_bench_layout_v1";
 
 const MIN_LEFT = 180;
@@ -325,6 +325,10 @@ onUnmounted(() => {
         :progress="active.progress"
       />
     </main>
+
+    <footer class="disclaimer">
+      免责声明：Agent 生成的结论与建议可能存在幻觉或口径偏差；重要分析请结合原始查询结果、固定报表及其它渠道交叉核实后再决策。
+    </footer>
   </div>
 </template>
 
@@ -332,7 +336,7 @@ onUnmounted(() => {
 .app {
   height: 100%;
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto 1fr auto;
   max-width: 1600px;
   margin: 0 auto;
   padding: 16px;
@@ -456,6 +460,16 @@ onUnmounted(() => {
   border-radius: var(--radius);
   box-shadow: var(--shadow);
   overflow: hidden;
+}
+
+.disclaimer {
+  margin: 0;
+  padding: 4px 6px 2px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.45;
+  text-align: center;
+  opacity: 0.92;
 }
 
 @media (max-width: 980px) {

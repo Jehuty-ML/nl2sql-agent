@@ -33,6 +33,6 @@ python .\scripts\generate_demo_data.py --seed 42 --users 800 --days 90
 
 ## 数据声明
 
-100% Synthetic Demo Data · No PII · 仅用于技术演示。
+100% Synthetic · No PII · 可复现样本数据，仅用于本地跑通问数。
 
 事件契约见 `app/bi/events_dictionary.json`。
