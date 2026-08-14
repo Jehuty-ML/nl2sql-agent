@@ -318,6 +318,8 @@ onUnmounted(() => {
 
       <RunLog
         v-if="active"
+        :key="active.id"
+        :session-id="active.id"
         :task-id="active.taskId"
         :status="active.status"
         :progress="active.progress"

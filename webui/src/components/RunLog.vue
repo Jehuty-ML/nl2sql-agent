@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, nextTick, reactive, ref, watch } from "vue";
+import { computed, nextTick, onUnmounted, reactive, ref, watch } from "vue";
 import type { ProgressStep } from "../api";
 import { renderMarkdown } from "../markdown";
 
 const props = defineProps<{
+  sessionId: string;
   taskId: string | null;
   status: string;
   progress: ProgressStep[];
@@ -18,12 +19,25 @@ const pinToBottom = ref(true);
 let ignoreScrollEvent = false;
 const NEAR_BOTTOM_PX = 48;
 
-/** 点开查看的全文抽屉 */
-const viewer = ref<{ step: string; body: string } | null>(null);
+/** 点开查看的全文抽屉（绑定当前 session，防串台） */
+const viewer = ref<{ sessionId: string; step: string; body: string } | null>(null);
 
-const viewerHtml = computed(() =>
-  viewer.value ? renderMarkdown(viewer.value.body) : ""
+const viewerOpen = computed(
+  () => Boolean(viewer.value && viewer.value.sessionId === props.sessionId)
 );
+
+const viewerHtml = computed(() => {
+  if (!viewerOpen.value || !viewer.value) return "";
+  return renderMarkdown(viewer.value.body);
+});
+
+function resetLocalUi() {
+  expanded.clear();
+  overflow.clear();
+  detailEls.value = [];
+  pinToBottom.value = true;
+  viewer.value = null;
+}
 
 function tone(step: string): string {
   if (/失败|错误/.test(step)) return "err";
@@ -49,7 +63,6 @@ function stepBody(p: ProgressStep): string {
 function canOpen(p: ProgressStep): boolean {
   const body = stepBody(p);
   if (!body) return false;
-  // 有 full，或正文较长 / 含 Markdown 结构
   return Boolean(
     p.full ||
       body.length > 120 ||
@@ -60,7 +73,7 @@ function canOpen(p: ProgressStep): boolean {
 function openViewer(p: ProgressStep) {
   const body = stepBody(p);
   if (!body) return;
-  viewer.value = { step: p.step, body };
+  viewer.value = { sessionId: props.sessionId, step: p.step, body };
   pinToBottom.value = false;
 }
 
@@ -102,8 +115,10 @@ function onRailScroll() {
 }
 
 async function measureOverflow() {
+  const sid = props.sessionId;
   overflow.clear();
   await nextTick();
+  if (sid !== props.sessionId) return;
   const last = props.progress.length - 1;
   detailEls.value.forEach((el, i) => {
     if (!el || i === last) return;
@@ -114,14 +129,25 @@ async function measureOverflow() {
 }
 
 async function afterContentChange() {
+  const sid = props.sessionId;
   await measureOverflow();
   await nextTick();
+  if (sid !== props.sessionId) return;
   scrollToLatest();
 }
 
 watch(
-  () => props.taskId,
+  () => props.sessionId,
   () => {
+    resetLocalUi();
+  }
+);
+
+watch(
+  () => [props.sessionId, props.taskId] as const,
+  () => {
+    expanded.clear();
+    overflow.clear();
     pinToBottom.value = true;
     viewer.value = null;
   }
@@ -137,15 +163,22 @@ watch(
 );
 
 watch(
-  () => props.progress.map((p) => `${p.step}|${p.detail}|${p.full || ""}`).join("\n"),
+  () =>
+    `${props.sessionId}|${props.taskId}|` +
+    props.progress.map((p) => `${p.step}|${p.detail}|${p.full || ""}`).join("\n"),
   () => {
     void afterContentChange();
   }
 );
 
-watch(viewer, (v) => {
-  if (v) window.addEventListener("keydown", onKey);
+watch(viewerOpen, (open) => {
+  if (open) window.addEventListener("keydown", onKey);
   else window.removeEventListener("keydown", onKey);
+});
+
+onUnmounted(() => {
+  window.removeEventListener("keydown", onKey);
+  viewer.value = null;
 });
 </script>
 
@@ -161,7 +194,7 @@ watch(viewer, (v) => {
     <ol v-else>
       <li
         v-for="(p, i) in progress"
-        :key="i"
+        :key="`${sessionId}-${taskId || 'none'}-${i}-${p.step}`"
         class="step"
         :class="[
           tone(p.step),
@@ -196,7 +229,7 @@ watch(viewer, (v) => {
   </aside>
 
   <Teleport to="body">
-    <div v-if="viewer" class="overlay" @click.self="closeViewer">
+    <div v-if="viewerOpen && viewer" class="overlay" @click.self="closeViewer">
       <div class="drawer" role="dialog" aria-modal="true">
         <header class="drawer-head">
           <div>
