@@ -186,7 +186,12 @@ export function createSession(title = "新分析"): Session {
         id: uid(),
         role: "system",
         content:
-          "两条通道：\n• slash（/dau 等）→ 固定 SQL，只出数据表，不经 LLM\n• 中文提问 → Agent，产出「结论 + 支撑数据 + 运营建议」（需配置 LLM）",
+          "【关于本 Demo】\n" +
+          "LumenLearn（流明学堂）是虚构的学习社区，数据和指标只为方便演示问数能力，不是真实业务。\n" +
+          "本项目的核心是「自然语言 / slash → 只读查数 → 表格与结论」；换成你自己的库表与固定 SQL 同样可以分析——ClickHouse 连接、事件字典、FIXED_QUERIES 都可替换。\n\n" +
+          "【两条通道】\n" +
+          "• slash（/dau 等）→ 固定 SQL，只出数据表，不经 LLM\n" +
+          "• 中文提问 → Agent，产出「结论 + 支撑数据 + 运营建议」（需配置 LLM）",
         createdAt: now,
       },
     ],

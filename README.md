@@ -1,20 +1,30 @@
 # lumen-query-agent
 
-LumenLearn（流明学堂）问数台 · 自然语言数据分析 Agent（求职 / 开源 Demo）。
+自然语言数据分析 Agent · 求职 / 开源 Demo（问数台）。
 
-面向 ClickHouse 上的合成学习社区数据（`events` + `users`），提供：
+**LumenLearn（流明学堂）是虚构业务**：合成学习社区数据与固定指标只为方便端到端演示，不是真实产品或生产库。  
+**可替换数据源做分析**：把 ClickHouse 连接、表结构 / 事件字典、`FIXED_QUERIES` 换成你自己的库与口径，同一套 slash + ReAct + 只读防护仍可复用。
+
+当前 Demo 自带 ClickHouse（`events` + `users`）与造数脚本，clone 后可独立跑通，提供：
 
 - **固定分析 slash**：不经过 LLM，稳定出表
 - **自然语言 Agent**：ReAct 调工具，交付「结论 + 数据 + 运营建议」
 - **Vue 问数台**：会话、进度、表格与 SQL/JSON 全文美化
 
-本仓自带 **ClickHouse Compose + DDL + 造数脚本**，clone 后可独立跑通，无需外部采集仓库。
-
-> 业务叙事为虚构开源学习社区；数据为 Synthetic Demo Only。
+> 数据声明：Synthetic Demo Only · No PII。
 
 ---
 
 ## 能力一览
+
+### 演示域 vs 可迁移能力
+
+| | 说明 |
+|--|------|
+| **演示域（可整换）** | LumenLearn 叙事、合成 `events`/`users`、`/dau` 等固定 SQL、造数脚本 |
+| **可迁移能力（项目重点）** | slash / Agent 双通道、只读三道防线、ReAct 工具循环、问数台 UI、报告导出 |
+
+换库时通常改：`.env` 的 `CH_*`、`infra/` DDL（或指向已有库）、`app/bi/` 字典与固定查询、以及 Prompt 中的表字段说明。
 
 ### 双通道交付
 
