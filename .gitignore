@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+.scratchpad/*
+!.scratchpad/.gitkeep
+.pytest_cache/
+.mypy_cache/
+*.egg-info/
+dist/
+build/
+webui/node_modules/
+webui/dist/
+*.log
+.DS_Store
