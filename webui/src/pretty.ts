@@ -77,11 +77,43 @@ function formatSql(sql: string): string {
   flat = flat.replace(BREAK_BEFORE, (m, _g, offset: number) =>
     offset === 0 ? m.toUpperCase() : `\n${m.toUpperCase()}`
   );
-  // 逗号后适度断行（长列表）
-  flat = flat.replace(/,(?!\n)\s*/g, ",\n  ");
-  // 清理 "\n  \n" 与关键字行缩进
+
+  // 逗号后断行（跳过字符串内逗号）
+  {
+    let out = "";
+    let i = 0;
+    while (i < flat.length) {
+      if (flat[i] === "'") {
+        let j = i + 1;
+        while (j < flat.length) {
+          if (flat[j] === "'" && flat[j + 1] === "'") {
+            j += 2;
+            continue;
+          }
+          if (flat[j] === "'") {
+            j += 1;
+            break;
+          }
+          j += 1;
+        }
+        out += flat.slice(i, j);
+        i = j;
+        continue;
+      }
+      if (flat[i] === ",") {
+        out += ",\n  ";
+        i += 1;
+        while (i < flat.length && flat[i] === " ") i += 1;
+        continue;
+      }
+      out += flat[i];
+      i += 1;
+    }
+    flat = out;
+  }
+
   const lines = flat.split("\n").map((ln) => ln.trimEnd());
-  const out: string[] = [];
+  const formatted: string[] = [];
   for (const ln of lines) {
     const t = ln.trim();
     if (!t) continue;
@@ -90,14 +122,14 @@ function formatSql(sql: string): string {
         t
       )
     ) {
-      out.push(t);
+      formatted.push(t);
     } else if (t.startsWith(",")) {
-      out.push("  " + t);
+      formatted.push("  " + t);
     } else {
-      out.push("  " + t);
+      formatted.push("  " + t);
     }
   }
-  return out.join("\n");
+  return formatted.join("\n");
 }
 
 function highlightSql(src: string): string {
