@@ -33,13 +33,19 @@ def create_app() -> FastAPI:
 
         @app.get("/")
         def index():
-            return FileResponse(WEBUI_DIST / "index.html")
+            return FileResponse(
+                WEBUI_DIST / "index.html",
+                headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+            )
 
     elif (LEGACY_WEB / "index.html").exists():
 
         @app.get("/")
         def index_legacy():
-            return FileResponse(LEGACY_WEB / "index.html")
+            return FileResponse(
+                LEGACY_WEB / "index.html",
+                headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+            )
 
     return app
 

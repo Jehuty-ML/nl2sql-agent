@@ -68,11 +68,16 @@ function highlightJson(src: string): string {
   return out;
 }
 
+/** 行首缩进改为 &nbsp;，避免外层 white-space 被覆盖时丢缩进 */
+function lockLeadingIndent(html: string): string {
+  return html.replace(/^( +)/gm, (m) => "&nbsp;".repeat(m.length));
+}
+
 function codeBlock(code: string, lang: string, label?: string): string {
   const prepared = lang === "sql" ? formatSql(code) : code;
   const body =
     lang === "sql"
-      ? highlightSql(prepared)
+      ? lockLeadingIndent(highlightSql(prepared))
       : lang === "json"
         ? highlightJson(prepared)
         : esc(prepared);
