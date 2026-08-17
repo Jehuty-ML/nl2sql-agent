@@ -14,6 +14,7 @@ import SessionList from "./components/SessionList.vue";
 import MessageList from "./components/MessageList.vue";
 import Composer from "./components/Composer.vue";
 import RunLog from "./components/RunLog.vue";
+import { deriveSessionTitle } from "./sessionTitle";
 
 const STORAGE_KEY = "lumen_query_bench_sessions_v5";
 const LAYOUT_KEY = "lumen_query_bench_layout_v1";
@@ -220,7 +221,7 @@ async function ask(query: string) {
   if (!q || !s || s.status === "running") return;
 
   s.messages.push(newMessage("user", q));
-  if (s.title === "新分析") s.title = q.slice(0, 18);
+  if (s.title === "新分析") s.title = deriveSessionTitle(q);
   s.status = "running";
   s.progress = [];
   s.taskId = null;
