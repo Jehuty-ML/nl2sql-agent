@@ -10,7 +10,7 @@
 
 slash 固定分析 + ReAct 工具循环 → 只读查 ClickHouse → 表格、结论与可核对的执行轨迹。
 
-定位是可复用的**分析中间层**（路由 / Agent / 只读防护 / 问数台），不是某个业务产品。仓库里的 **LumenLearn（流明学堂）** 只是开箱即用的虚构场景与合成数据。
+定位是可复用的**分析中间层**（路由 / Agent / 只读防护 / 问数台），不是某个业务产品。仓库里的 **LumenLearn（流明学堂）** 只是开箱即用的虚构场景与合成数据。强调两件事：**查数失败或空结果会明确提醒**，以及 **从提问到 SQL/结果可全程回看与下载**。
 
 仓库目录名可能仍是 `lumen-query-agent` / `nl2sql-query-agent`，以实际 clone 路径为准。
 
@@ -37,7 +37,7 @@ slash 固定分析 + ReAct 工具循环 → 只读查 ClickHouse → 表格、�
 |--------|------------------|
 | 想接自有指标的数据/BI 团队 | 换连接、元数据与 `FIXED_QUERIES`，留下引擎与问数台 |
 | 想演示 NL2SQL / Agent 问数 | clone 后起示例 ClickHouse，立刻点 `/dau` 或中文提问 |
-| 关心安全与可审计 | 模型约束 + SQL 防护 + 库侧只读；右侧 Run Log 可回看每一步 |
+| 关心安全与可审计 | 只读三道防线 + 异常交付提示 + Run Log / 证据落盘，数字可回追 |
 
 ```text
 你的问题
@@ -65,6 +65,8 @@ flowchart LR
   AG --> OUT
   AG --> LOG[Run Log 证据链]
   FX --> LOG
+  AG --> FL[交付薄地板<br/>异常提示 / partial]
+  FL --> OUT
 ```
 
 ---
@@ -95,7 +97,7 @@ flowchart LR
 
 ### 3. Run Log：证据链可回看
 
-思考轮次、工具入参、观察结果、完成态都在右侧时间线；可折叠、贴底滚动，支持全文抽屉。
+思考轮次、工具入参、观察结果、完成态都在右侧时间线；可折叠、贴底滚动。点 **查看全文** 可打开抽屉：LLM 思考按 Markdown 排版，动态 SQL / 工具返回展示高亮 SQL 与结果表（详见下文「数据全链路可靠性」）。
 
 <p align="center">
   <img src="docs/screenshots/04-run-log.png" alt="Run Log 证据链特写" width="360" />
@@ -142,6 +144,42 @@ flowchart LR
 | **模型层** | Prompt + 工具 schema：仅 `SELECT` / `WITH … SELECT` |
 | **工具层** | `sql_guard`：白名单、禁多语句、禁写/DDL；缺省补 `LIMIT` |
 | **数据仓库** | 只读账号 + `GRANT SELECT`；会话 `settings.readonly=1` |
+
+### 数据全链路可靠性
+
+问数结果要「敢看、敢追」：查数异常时**明确提醒**，正常路径则能从结论**回溯到 SQL 与原始返回**。
+
+#### 1. 异常提醒（交付薄地板）
+
+自然语言 Agent 交卷前，会检查本轮是否真正跑通查数工具（`get_fixed_analysis` / `db_query`）：
+
+| 情况 | 行为 |
+|------|------|
+| 没有任何成功的查数结果 | 回复顶部黄标 **【系统提示】**，状态标为 `partial`；**保留模型原文**，不打回重写 |
+| 查数成功但 0 行 / 无可用行 | 同样提示「空结果请结合口径判断」，并以 Run Log / 工具返回为准 |
+| 查数成功且有行 | 正常交付；表格优先来自工具结果，而非散文里手写数字 |
+
+设计取舍：**薄地板、不硬栏**——不替用户「挡死」交付，但绝不假装「有数」。Slash 固定分析本身不经 LLM，数字路径更干净。
+
+#### 2. 全链路可溯源
+
+| 环节 | 你能看到什么 |
+|------|----------------|
+| **路由** | Run Log：`fixed_slash` vs `agent_loop` |
+| **思考** | 「LLM 思考」可点 **查看全文**（含 reasoning，若模型提供） |
+| **调工具** | 固定分析 key / 动态 SQL 全文；SQL 在抽屉内高亮排版 |
+| **观察** | 「工具返回」：元信息芯片 + SQL + 结果表（避免整墙 raw JSON） |
+| **落盘** | `.scratchpad/evidence/` 每次工具与终态 JSON；任务进度在 `.scratchpad/tasks/` |
+| **下载** | 消息「产物」单文件下载；顶栏打包 `report.md` + `evidence/*.json`，MD 内相对链接可点开原始证据 |
+
+一条推荐核对路径：
+
+```text
+结论里的数字 / 建议
+  → 对话区表格（工具 rows）
+  → 右侧 Run Log「工具返回」全文
+  → 下载 evidence/*.json 对照原始 SQL 与行数据
+```
 
 ### 示例固定分析（Lumen 夹具）
 
@@ -270,9 +308,11 @@ python scripts\smoke_basic.py
 docs/screenshots/      # README 界面截图
 infra/                 # 示例 ClickHouse 夹具（可替换/删除）
 app/bi/                # 指标与固定 SQL（按业务替换）
-app/core/agent/        # ReAct
+app/core/agent/        # ReAct · delivery_floor（异常提示）
 app/core/routing/      # slash
 app/core/tools/        # sql_guard / db_query / …
+app/core/session/      # 任务进度落盘（Run Log 数据源）
+.scratchpad/           # 运行时：tasks / evidence / reports（本地，默认不入库）
 webui/                 # 问数台
 scripts/               # 示例造数与冒烟
 ```
@@ -283,7 +323,7 @@ scripts/               # 示例造数与冒烟
 
 ## 免责声明
 
-Agent（尤其自然语言路径）生成的结论、解读与运营建议**可能存在幻觉、口径偏差或过度外推**。请以工具返回的查询结果与固定分析报表为准，重要决策前务必多渠道核实，勿仅依赖模型叙述自动执行。
+Agent（尤其自然语言路径）生成的结论、解读与运营建议**可能存在幻觉、口径偏差或过度外推**。本项目用异常提示与证据链降低「空口无凭」的风险，但**不替代**人对数字与业务口径的核对。请以工具返回、Run Log 与固定分析报表为准；重要决策前务必多渠道核实，勿仅依赖模型叙述自动执行。
 
 ## 协议
 
