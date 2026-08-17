@@ -127,15 +127,31 @@ function canOpen(p: ProgressStep): boolean {
   if (isWaitingPlaceholder(p)) return false;
   const body = stepBody(p);
   if (!body) return false;
-  // 思考 / 工具 / 结论：有正文即可点开（含短 SQL / 短 JSON）
-  if (/思考|想法|结论|工具|SQL|观察|决策|导出|查询完成/i.test(p.step)) {
-    return !/^本轮无文字思考/.test(body);
+
+  // 短决策 / 短参数：列表已够读，不挂「查看全文」
+  if (/模型决策/.test(p.step) && body.length < 160 && !p.full) return false;
+  if (/调用工具/.test(p.step) && !p.full && body.length < 160) return false;
+  if (/^本轮无文字思考/.test(body)) return false;
+
+  // LLM 思考：有 full（或足够长的正文）才可点开全文
+  if (/LLM 思考|模型想法/.test(p.step)) {
+    return Boolean(p.full) || body.length > 80;
   }
+
+  // 工具返回 / SQL / 结论
+  if (/工具返回|动态\s*SQL|组织最终|查询完成|固定分析/.test(p.step)) {
+    return Boolean(p.full) || body.length > 80 || looksLikeOpenable(body);
+  }
+
   return Boolean(
     p.full ||
       body.length > 120 ||
       /###|\|.*\||^\d+\.\s/m.test(body)
   );
+}
+
+function looksLikeOpenable(body: string): boolean {
+  return /###|\|.*\||^\s*[\[{]/.test(body);
 }
 
 function openViewer(p: ProgressStep) {
@@ -804,5 +820,105 @@ ol {
 
 .rich :deep(.doc-json .md-h4:first-of-type) {
   margin-top: 4px;
+}
+</style>
+
+<!-- Teleport 到 body 时补一份非 scoped，避免个别环境下深选择器未命中导致「像纯文本 JSON」 -->
+<style>
+.overlay .drawer-body.rich {
+  white-space: normal;
+  color: #2a332c;
+}
+.overlay .drawer-body.rich .meta-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.overlay .drawer-body.rich .chip {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: #eef3ea;
+  border: 1px solid #d5e0d0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #2f4034;
+}
+.overlay .drawer-body.rich .code-block {
+  margin: 8px 0 14px;
+  border: 1px solid #d8d3c8;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #1e2420;
+}
+.overlay .drawer-body.rich .code-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 10px;
+  background: #2a322c;
+  color: #c5d0c4;
+  font-size: 0.68rem;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.overlay .drawer-body.rich .code {
+  margin: 0;
+  padding: 12px 14px;
+  overflow: auto;
+  max-height: min(52vh, 520px);
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 0.78rem;
+  line-height: 1.55;
+  color: #e7eee6;
+  white-space: pre;
+}
+.overlay .drawer-body.rich .code.wrap,
+.overlay .drawer-body.rich .code-block[data-lang="sql"] .code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.overlay .drawer-body.rich .tok-kw {
+  color: #7ec8ff;
+  font-weight: 650;
+}
+.overlay .drawer-body.rich .tok-str {
+  color: #c6e59a;
+}
+.overlay .drawer-body.rich .tok-num {
+  color: #f0c674;
+}
+.overlay .drawer-body.rich .table-scroll {
+  margin: 10px 0 14px;
+  overflow-x: auto;
+  border: 1px solid #e0dcd2;
+  border-radius: 8px;
+  background: #fff;
+}
+.overlay .drawer-body.rich table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.84rem;
+  min-width: 280px;
+}
+.overlay .drawer-body.rich th,
+.overlay .drawer-body.rich td {
+  padding: 8px 10px;
+  text-align: left;
+  border-bottom: 1px solid #e0dcd2;
+  white-space: nowrap;
+}
+.overlay .drawer-body.rich th {
+  background: #f4f6f1;
+  font-weight: 600;
+}
+.overlay .drawer-body.rich .md-h4 {
+  margin: 16px 0 8px;
+  font-size: 1rem;
+  font-weight: 650;
+  color: #5c4030;
 }
 </style>

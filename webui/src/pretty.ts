@@ -102,8 +102,20 @@ function lockLeadingIndent(html: string): string {
   return html.replace(/^( +)/gm, (m) => "&nbsp;".repeat(m.length));
 }
 
+function normalizeSqlText(sql: string): string {
+  let s = sql.trim();
+  // 若正文几乎没有真实换行、却含字面 \\n，则还原为换行（避免 JSON 源码感）
+  const realNl = (s.match(/\n/g) || []).length;
+  const escapedNl = (s.match(/\\n/g) || []).length;
+  if (escapedNl > 0 && realNl < 2) {
+    s = s.replace(/\\n/g, "\n").replace(/\\t/g, "\t");
+  }
+  return s;
+}
+
 function codeBlock(code: string, lang: string, label?: string): string {
-  const prepared = lang === "sql" ? formatSql(code) : code;
+  const prepared =
+    lang === "sql" ? formatSql(normalizeSqlText(code)) : code;
   const body =
     lang === "sql"
       ? lockLeadingIndent(highlightSql(prepared))
@@ -132,12 +144,31 @@ function stripSqlPrefix(text: string): string {
 
 function tryParseJson(text: string): unknown | undefined {
   const t = text.trim();
-  if (!(t.startsWith("{") || t.startsWith("["))) return undefined;
-  try {
-    return JSON.parse(t);
-  } catch {
-    return undefined;
+  const attempt = (s: string) => {
+    try {
+      return JSON.parse(s);
+    } catch {
+      return undefined;
+    }
+  };
+  // Python json.dumps(allow_nan=True) 可能产出 NaN/Infinity，浏览器无法解析
+  const repairPyNan = (s: string) =>
+    s.replace(/\bNaN\b/g, "null").replace(/-?\bInfinity\b/g, "null");
+
+  if (t.startsWith("{") || t.startsWith("[")) {
+    const direct = attempt(t) ?? attempt(repairPyNan(t));
+    if (direct !== undefined) return direct;
   }
+  const startObj = t.indexOf("{");
+  const startArr = t.indexOf("[");
+  let start = -1;
+  if (startObj >= 0 && (startArr < 0 || startObj < startArr)) start = startObj;
+  else if (startArr >= 0) start = startArr;
+  if (start < 0) return undefined;
+  const end = Math.max(t.lastIndexOf("}"), t.lastIndexOf("]"));
+  if (end <= start) return undefined;
+  const slice = t.slice(start, end + 1);
+  return attempt(slice) ?? attempt(repairPyNan(slice));
 }
 
 function formatCell(v: unknown): string {
@@ -200,27 +231,41 @@ function renderToolPayload(obj: Record<string, unknown>): string {
     parts.push(`<div class="callout hint"><strong>提示</strong> ${esc(String(obj.hint))}</div>`);
   }
   if (typeof obj.sql === "string" && obj.sql.trim()) {
-    parts.push("<h4 class=\"md-h4\">SQL</h4>");
+    parts.push('<h4 class="md-h4">SQL</h4>');
     parts.push(codeBlock(obj.sql.trim(), "sql", "SQL"));
   }
   const rows = obj.rows;
   if (Array.isArray(rows) && rows.length && typeof rows[0] === "object" && rows[0]) {
-    parts.push("<h4 class=\"md-h4\">结果表</h4>");
+    parts.push('<h4 class="md-h4">结果表</h4>');
     parts.push(rowsToHtmlTable(rows as Record<string, unknown>[]));
+  } else if (Array.isArray(rows) && rows.length === 0) {
+    parts.push('<p class="md-muted">查询成功，但结果为 0 行</p>');
   }
-  // leftover pretty json (without bulky rows duplication if already tabled)
+  // 其它字段；已展示 SQL/表时绝不整包回退 raw JSON（否则 SQL 里会出现字面 \\n）
   const rest = { ...obj };
   delete rest.sql;
-  if (Array.isArray(rows) && rows.length) delete rest.rows;
-  const interesting = Object.keys(rest).filter(
-    (k) => !["ok", "name", "analysis_key", "row_count", "start_date", "end_date", "error", "hint", "columns"].includes(k)
-  );
+  delete rest.rows;
+  const skip = new Set([
+    "ok",
+    "name",
+    "analysis_key",
+    "row_count",
+    "start_date",
+    "end_date",
+    "error",
+    "hint",
+    "columns",
+    "readonly",
+    "description",
+  ]);
+  const interesting = Object.keys(rest).filter((k) => !skip.has(k));
   if (interesting.length) {
     const slim: Record<string, unknown> = {};
     for (const k of interesting) slim[k] = rest[k];
-    parts.push("<h4 class=\"md-h4\">其它字段</h4>");
+    parts.push('<h4 class="md-h4">其它字段</h4>');
     parts.push(codeBlock(JSON.stringify(slim, null, 2), "json", "JSON"));
-  } else if (!Array.isArray(rows) || !rows.length) {
+  }
+  if (!parts.length) {
     parts.push(codeBlock(JSON.stringify(obj, null, 2), "json", "JSON"));
   }
   return parts.join("");
@@ -336,6 +381,8 @@ export function renderFullContent(text: string, stepHint = ""): string {
         "sql" in obj ||
         "analysis_key" in obj ||
         "ok" in obj ||
+        "columns" in obj ||
+        "row_count" in obj ||
         /工具返回|观察|固定分析|动态\s*SQL|db_query/i.test(stepHint)
       ) {
         return `<div class="doc-json">${renderToolPayload(obj)}</div>`;

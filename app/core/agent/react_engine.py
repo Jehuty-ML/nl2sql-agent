@@ -137,12 +137,36 @@ def _tool_return_title(fn: str, args: dict[str, Any]) -> str:
     return f"工具返回 · {fn}"
 
 
+def _llm_chat_payload(
+    llm: dict[str, Any],
+    messages: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """构造 chat/completions 请求体；按 Provider 尽量打开 reasoning，便于 Run Log 展示思考。"""
+    payload: dict[str, Any] = {
+        "model": llm["model"],
+        "messages": messages,
+        "tools": TOOL_SCHEMAS,
+        "tool_choice": "auto",
+    }
+    provider = str(llm.get("provider") or "").lower()
+    if provider in ("ark", "dashscope"):
+        payload["enable_reasoning"] = True
+    elif provider == "deepseek":
+        payload["thinking"] = {"type": "enabled"}
+    return payload
+
+
 def _extract_think_text(msg: dict[str, Any]) -> str:
     """合并 content / reasoning_content，供 Run Log「LLM 思考」全文展示。"""
     parts: list[str] = []
-    reasoning = (msg.get("reasoning_content") or msg.get("reasoning") or "").strip()
-    if reasoning:
-        parts.append(reasoning)
+    reasoning = (
+        msg.get("reasoning_content")
+        or msg.get("reasoning")
+        or (msg.get("thinking") if isinstance(msg.get("thinking"), str) else None)
+        or ""
+    )
+    if isinstance(reasoning, str) and reasoning.strip():
+        parts.append(reasoning.strip())
     content = (msg.get("content") or "").strip()
     if content and content not in parts:
         parts.append(content)
@@ -308,16 +332,23 @@ def _run_llm_react(task_id: str, query: str) -> dict[str, Any]:
                 f"LLM 思考 · 第 {round_no} 轮",
                 "等待模型决定：继续查数 / 还是给出结论…",
             )
+            req_body = _llm_chat_payload(llm, messages)
             resp = client.post(
                 f"{str(llm['base_url']).rstrip('/')}/chat/completions",
                 headers={"Authorization": f"Bearer {llm['api_key']}"},
-                json={
-                    "model": llm["model"],
-                    "messages": messages,
-                    "tools": TOOL_SCHEMAS,
-                    "tool_choice": "auto",
-                },
+                json=req_body,
             )
+            # 部分 endpoint 不认 reasoning 字段：降级重试，避免整轮失败
+            if resp.status_code >= 400 and (
+                "enable_reasoning" in req_body or "thinking" in req_body
+            ):
+                req_body.pop("enable_reasoning", None)
+                req_body.pop("thinking", None)
+                resp = client.post(
+                    f"{str(llm['base_url']).rstrip('/')}/chat/completions",
+                    headers={"Authorization": f"Bearer {llm['api_key']}"},
+                    json=req_body,
+                )
             if resp.status_code >= 400:
                 detail = _http_error_detail(resp)
                 raise RuntimeError(
@@ -423,9 +454,27 @@ def _run_llm_react(task_id: str, query: str) -> dict[str, Any]:
                         )
 
                 try:
-                    pretty = json.dumps(json.loads(result), ensure_ascii=False, indent=2)
-                except Exception:
-                    pretty = result
+                    pretty = json.dumps(
+                        json.loads(result),
+                        ensure_ascii=False,
+                        indent=2,
+                        allow_nan=False,
+                    )
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    # 结果里可能含 NaN：先正规化再 dump，保证前端可 JSON.parse
+                    try:
+                        pretty = json.dumps(
+                            json.loads(
+                                result.replace("NaN", "null")
+                                .replace("-Infinity", "null")
+                                .replace("Infinity", "null")
+                            ),
+                            ensure_ascii=False,
+                            indent=2,
+                            allow_nan=False,
+                        )
+                    except Exception:
+                        pretty = result
                 task_store.append_progress(
                     task_id,
                     _tool_return_title(fn, args),

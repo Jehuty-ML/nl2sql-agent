@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from typing import Any
 
 import clickhouse_connect
@@ -91,6 +92,10 @@ def run_query(sql: str, limit: int = 500) -> dict[str, Any]:
 
 
 def _jsonable(v: Any) -> Any:
+    if isinstance(v, float):
+        # 标准 JSON 不含 NaN/Infinity；否则前端 JSON.parse 失败，Run Log 只能显示 raw 文本
+        if math.isnan(v) or math.isinf(v):
+            return None
     if hasattr(v, "isoformat"):
         return v.isoformat()
     if isinstance(v, (bytes, bytearray)):
@@ -100,4 +105,4 @@ def _jsonable(v: Any) -> Any:
 
 def tool_db_query(sql: str) -> str:
     """供 Agent 调用的工具：返回 JSON 字符串。"""
-    return json.dumps(run_query(sql), ensure_ascii=False)
+    return json.dumps(run_query(sql), ensure_ascii=False, allow_nan=False)
