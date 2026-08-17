@@ -165,24 +165,35 @@ flowchart LR
 
 #### 2. 全链路可溯源
 
-| 环节 | 你能看到什么 |
-|------|----------------|
-| **路由** | Run Log：`fixed_slash` vs `agent_loop` |
-| **思考** | 「LLM 思考」可点 **查看全文**（含 reasoning，若模型提供） |
-| **调工具** | 固定分析 key / 动态 SQL 全文；SQL 在抽屉内高亮排版 |
-| **观察** | 「工具返回」：元信息芯片 + SQL + 结果表（避免整墙 raw JSON） |
-| **落盘** | `.scratchpad/evidence/` 每次工具与终态 JSON；任务进度在 `.scratchpad/tasks/` |
-| **下载** | 消息「产物」单文件下载；顶栏打包 `report.md` + `evidence/*.json`，MD 内相对链接可点开原始证据 |
+| 环节 | 你能看到什么 | 界面哪里 |
+|------|----------------|----------|
+| **路由** | `fixed_slash` / `agent_loop` | 右侧 **Run Log** 靠前步骤「路由决策」 |
+| **思考** | 「LLM 思考」全文（含 reasoning，若有） | Run Log 对应步骤点 **查看全文** → 抽屉 |
+| **调工具** | 固定分析 key / 动态 SQL | Run Log「调用工具 · …」；有 SQL 时可点 **查看全文** |
+| **观察** | 元信息 + SQL 高亮 + 结果表 | Run Log「工具返回」→ **查看全文**（下图右） |
+| **落盘** | `evidence/*.json`、任务进度 JSON | 服务端目录 `.scratchpad/`（不在 UI 里直接浏览） |
+| **下载** | 单文件证据 / 会话报告 zip | 对话气泡底部 **产物**；顶栏 **整理并下载报告**（下图左中） |
+
+<p align="center">
+  <img src="docs/screenshots/03-agent-nl.png" alt="问数台：中栏结论与产物下载，右侧 Run Log" width="720" />
+</p>
+
+<p align="center"><sub>中栏下方「下载证据」= 产物入口；右侧 Run Log 步骤旁「查看全文」= 思考 / SQL / 工具返回入口。</sub></p>
+
+<p align="center">
+  <img src="docs/screenshots/04b-run-log-viewer.png" alt="点开查看全文：SQL 与结果表" width="720" />
+</p>
+
+<p align="center"><sub>点 Run Log「工具返回 · …」的「查看全文」后：抽屉内为结构化 SQL + 结果表，而不是整墙 raw JSON。</sub></p>
 
 一条推荐核对路径：
 
 ```text
 结论里的数字 / 建议
-  → 对话区表格（工具 rows）
-  → 右侧 Run Log「工具返回」全文
-  → 下载 evidence/*.json 对照原始 SQL 与行数据
+  → 中栏表格（工具 rows）与气泡底部「下载证据」
+  → 右侧 Run Log「工具返回」→ 查看全文
+  → evidence/*.json 对照原始 SQL 与行数据
 ```
-
 ### 示例固定分析（演示用）
 
 | 指令 | 指标（示例） |
