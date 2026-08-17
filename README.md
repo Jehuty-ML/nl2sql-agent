@@ -1,6 +1,6 @@
-# LumenLearn Query Bench
+# nl2sql-agent
 
-**通用 NL2SQL / 问数 Agent** · 用自然语言问数，而不是写 SQL
+**NL2SQL / 问数 Agent** · 用自然语言问数，而不是写 SQL
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
@@ -8,11 +8,11 @@
 [![ClickHouse](https://img.shields.io/badge/DB-ClickHouse-yellow.svg)](https://clickhouse.com/)
 [![Slash](https://img.shields.io/badge/Slash-no%20LLM%20required-lightgrey.svg)](#双通道交付)
 
-slash 固定分析 + ReAct 工具循环 → 只读查 ClickHouse → 表格、结论与可核对的执行轨迹。
+slash 固定分析 + ReAct 工具循环 → 只读查 ClickHouse → 表格、结论，以及可回看的 Run Log / 证据链。
 
-定位是可复用的**分析中间层**（路由 / Agent / 只读防护 / 问数台），不是某个业务产品。仓库里的 **LumenLearn（流明学堂）** 只是开箱即用的虚构场景与合成数据。强调两件事：**查数失败或空结果会明确提醒**，以及 **从提问到 SQL/结果可全程回看与下载**。
+本仓库是通用问数引擎（路由、Agent、只读防护、问数台）。**LumenLearn（流明学堂）** 只是附带的虚构演示场景与合成数据，方便 clone 后立刻跑通；换成自有库与 `FIXED_QUERIES` 即可接真实业务。
 
-仓库目录名可能仍是 `lumen-query-agent` / `nl2sql-query-agent`，以实际 clone 路径为准。
+需要「埋点采集 → 入仓」链路时，可配合独立仓库 [lumenlearn-event-pipeline](https://github.com/Jehuty-ML/lumenlearn-event-pipeline)（Nginx → Flume → Kafka → Flink）；本 Agent **只读查 ClickHouse**，不依赖必须跑通采集集群。
 
 ![问数台主界面](docs/screenshots/01-overview.png)
 
@@ -181,7 +181,7 @@ flowchart LR
   → 下载 evidence/*.json 对照原始 SQL 与行数据
 ```
 
-### 示例固定分析（Lumen 夹具）
+### 示例固定分析（演示用）
 
 | 指令 | 指标（示例） |
 |------|----------------|
@@ -196,16 +196,15 @@ flowchart LR
 
 ---
 
-## 示例场景说明
+## 示例场景（LumenLearn）
 
-**LumenLearn** 是临时虚构场景：合成学习社区行为数据 + 几条示例指标，方便 clone 后立刻跑通。
+为方便演示，仓库内置虚构学习社区 **LumenLearn** 的合成数据与 `/dau` 等 slash 指标。样本：Synthetic · No PII · 可复现 seed；业务日约 **2026-05-04 ~ 2026-08-01**。
 
 | | 说明 |
 |--|------|
-| **通用能力（主）** | 路由、ReAct、只读防护、工具协议、任务进度、问数台 |
-| **Lumen 夹具（次）** | `infra/` 示例 ClickHouse、`lumenlearn` 库、造数脚本、`/dau` 等 slash |
-
-样本数据：Synthetic · No PII · 可复现 seed；业务日约 **2026-05-04 ~ 2026-08-01**。
+| **本仓库** | NL2SQL 问数：路由 / ReAct / 只读防护 / 问数台 |
+| **演示数据** | `infra/` ClickHouse、`scripts/generate_demo_data.py`、示例 slash |
+| **可选采集** | [lumenlearn-event-pipeline](https://github.com/Jehuty-ML/lumenlearn-event-pipeline)（事件契约与本仓示例对齐） |
 
 ---
 
@@ -215,17 +214,17 @@ flowchart LR
 |----|------|
 | API | FastAPI · 任务进度落盘 |
 | Agent | 单 Agent ReAct · OpenAI 兼容 Chat Completions |
-| 数据 | ClickHouse（示例夹具见 `infra/`） |
+| 数据 | ClickHouse（演示库见 `infra/`） |
 | 前端 | Vue 3 + Vite |
 
 ---
 
-## 快速开始（用示例夹具跑通）
+## 快速开始（用演示数据跑通）
 
 ### 1. 依赖与配置
 
 ```powershell
-cd lumen-query-agent   # 或你的本地目录名
+cd nl2sql-agent   # clone 后的目录名
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
@@ -306,7 +305,7 @@ python scripts\smoke_basic.py
 
 ```
 docs/screenshots/      # README 界面截图
-infra/                 # 示例 ClickHouse 夹具（可替换/删除）
+infra/                 # 演示用 ClickHouse（可替换/删除）
 app/bi/                # 指标与固定 SQL（按业务替换）
 app/core/agent/        # ReAct · delivery_floor（异常提示）
 app/core/routing/      # slash
@@ -314,10 +313,10 @@ app/core/tools/        # sql_guard / db_query / …
 app/core/session/      # 任务进度落盘（Run Log 数据源）
 .scratchpad/           # 运行时：tasks / evidence / reports（本地，默认不入库）
 webui/                 # 问数台
-scripts/               # 示例造数与冒烟
+scripts/               # 演示造数与冒烟
 ```
 
-示例事件契约：`app/bi/events_dictionary.json`（仅 Lumen 夹具）。
+示例事件契约：`app/bi/events_dictionary.json`（与 [lumenlearn-event-pipeline](https://github.com/Jehuty-ML/lumenlearn-event-pipeline) 对齐）。
 
 ---
 
