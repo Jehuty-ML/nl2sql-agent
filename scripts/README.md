@@ -36,3 +36,14 @@ python .\scripts\generate_demo_data.py --seed 42 --users 800 --days 90
 100% Synthetic · No PII · 可复现样本数据，仅用于本地跑通问数。
 
 事件契约见 `app/bi/events_dictionary.json`。
+
+## 更新 README 截图（可选）
+
+后端已在 `http://127.0.0.1:6010/` 运行，且已配置 LLM（自然语言截图需要）时：
+
+```powershell
+npm i -D playwright
+node .\scripts\capture_readme_shots.mjs
+```
+
+脚本用本机 Edge 截取 `docs/screenshots/01`–`04`，并隐藏状态栏中的具体模型 ID。
