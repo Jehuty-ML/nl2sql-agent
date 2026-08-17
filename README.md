@@ -49,9 +49,33 @@ slash 固定分析 + ReAct 工具循环 → 只读查 ClickHouse → 表格、�
                                     Run Log：思考 / 调工具 / 观察
 ```
 
+### 架构（示意）
+
+```mermaid
+flowchart LR
+  U[用户提问] --> UI[问数台 WebUI]
+  UI --> API[FastAPI]
+  API --> R{路由}
+  R -->|显式 /slash| FX[固定 SQL]
+  R -->|自然语言| AG[ReAct Agent]
+  AG --> T[工具<br/>固定分析 / db_query / 导出]
+  FX --> CH[(ClickHouse 只读)]
+  T --> CH
+  FX --> OUT[表格 / 报告]
+  AG --> OUT
+  AG --> LOG[Run Log 证据链]
+  FX --> LOG
+```
+
 ---
 
 ## 界面一览
+
+<p align="center">
+  <img src="docs/screenshots/05-demo.gif" alt="问数台演示：slash 出表 + 自然语言 Agent" width="960" />
+</p>
+
+<p align="center"><sub>演示（约 20s 加速回放）：点 <code>/dau</code> 出表 → 中文提问 → 结论与 Run Log</sub></p>
 
 ### 1. Slash：稳定出表（不经 LLM）
 

@@ -11,6 +11,9 @@ dist/
 build/
 webui/node_modules/
 webui/dist/
+.scratch_pw/
+node_modules/
 data/
 *.log
 .DS_Store
+docs/screenshots/_gif_tmp/

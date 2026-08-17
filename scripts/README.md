@@ -39,11 +39,14 @@ python .\scripts\generate_demo_data.py --seed 42 --users 800 --days 90
 
 ## 更新 README 截图（可选）
 
-后端已在 `http://127.0.0.1:6010/` 运行，且已配置 LLM（自然语言截图需要）时：
+后端已在 `http://127.0.0.1:6010/` 运行，且已配置 LLM（自然语言截图 / GIF 需要）时：
 
 ```powershell
-npm i -D playwright
+npm i -D playwright --prefix .scratch_pw
+npx --prefix .scratch_pw playwright install ffmpeg
 node .\scripts\capture_readme_shots.mjs
+node .\scripts\capture_readme_demo_gif.mjs
 ```
 
-脚本用本机 Edge 截取 `docs/screenshots/01`–`04`，并隐藏状态栏中的具体模型 ID。
+- 静态图写入 `docs/screenshots/01`–`04`（隐藏状态栏模型 ID）
+- 演示 GIF 写入 `docs/screenshots/05-demo.gif`（约 3× 加速）
