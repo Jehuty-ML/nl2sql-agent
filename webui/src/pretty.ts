@@ -10,8 +10,37 @@ function esc(s: string): string {
     .replace(/>/g, "&gt;");
 }
 
+function inlinePlain(s: string): string {
+  return esc(s)
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/`([^`]+)`/g, "<code>$1</code>");
+}
+
+function safeHref(href: string): string | null {
+  const h = href.trim();
+  if (/^\/download\//i.test(h)) return h;
+  if (/^https?:\/\//i.test(h)) return h;
+  return null;
+}
+
 function inline(s: string): string {
-  return esc(s).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  const re = /\[([^\]]+)\]\(([^)]+)\)/g;
+  let out = "";
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(s))) {
+    out += inlinePlain(s.slice(last, m.index));
+    const label = m[1];
+    const href = safeHref(m[2]);
+    if (href) {
+      out += `<a class="md-link" href="${esc(href)}" target="_blank" rel="noopener noreferrer">${esc(label)}</a>`;
+    } else {
+      out += inlinePlain(m[0]);
+    }
+    last = m.index + m[0].length;
+  }
+  out += inlinePlain(s.slice(last));
+  return out;
 }
 
 function isTableSep(cells: string[]): boolean {

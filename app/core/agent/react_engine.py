@@ -9,7 +9,7 @@ import httpx
 
 from app.bi.fixed_queries import FIXED_QUERIES
 from app.config import settings
-from app.core.agent.evidence import save_evidence
+from app.core.agent.evidence import attach_evidence_index, save_evidence
 from app.core.routing.slash_router import help_text, route_input
 from app.core.session import task_store
 from app.core.tools.clickhouse_tool import tool_db_query
@@ -493,10 +493,51 @@ def run_agent(task_id: str, query: str) -> dict[str, Any]:
             "完成",
             f"mode={result.get('mode')}",
         )
+        attach_evidence_index(result, task_id)
         task_store.finish_task(task_id, result, ok=True)
         return result
     except Exception as e:
         task_store.append_progress(task_id, "失败", _clip(str(e), 400))
-        err = {"answer": f"执行失败: {e}", "mode": "error", "error": str(e)}
+        err = {
+            "answer": _friendly_exec_error(e),
+            "mode": "error",
+            "error": str(e),
+        }
+        attach_evidence_index(err, task_id)
         task_store.finish_task(task_id, err, ok=False)
         return err
+
+
+def _friendly_exec_error(exc: BaseException) -> str:
+    """把网络超时等底层错误转成可操作的中文说明。"""
+    text = str(exc)
+    low = text.lower()
+    is_timeout = (
+        "10060" in text
+        or "timed out" in low
+        or "timeout" in low
+        or "连接尝试失败" in text
+        or isinstance(exc, (httpx.ConnectTimeout, httpx.ReadTimeout, TimeoutError))
+    )
+    is_connect = is_timeout or isinstance(
+        exc, (httpx.ConnectError, ConnectionError, OSError)
+    )
+    if is_connect and (
+        is_timeout
+        or "10060" in text
+        or "10061" in text
+        or "name or service not known" in low
+        or "getaddrinfo" in low
+    ):
+        llm = settings.resolve_llm()
+        return (
+            "无法连接大模型服务"
+            f"（provider={llm.get('provider')} · model={llm.get('model')}）。\n"
+            f"底层错误：{text}\n\n"
+            "可先：\n"
+            "1. 再试一次自然语言提问（多为瞬时网络/防火墙问题）\n"
+            "2. 或改用 slash 固定分析（不经 LLM）：/dau /funnel /retention /overview\n"
+            "3. 检查本机能否访问 LLM API、是否需代理/VPN，以及 .env 中的 base_url / api_key"
+        )
+    return f"执行失败: {text}"
+

@@ -12,6 +12,14 @@ export interface ChatMessage {
   createdAt: number;
   /** 结构化结果表（固定分析 / 查询摘要） */
   table?: ResultTable;
+  /** 产出该条回复的后端 task */
+  taskId?: string;
+  /** 主证据路径（.scratchpad/evidence/...） */
+  evidencePath?: string;
+  /** 该 task 下全部证据文件 */
+  evidenceFiles?: string[];
+  /** 服务端写出的单次分析报告 md */
+  reportPath?: string;
 }
 
 export interface ProgressStep {
@@ -50,7 +58,8 @@ export interface TaskPayload {
   final_result?: {
     answer?: string;
     evidence_path?: string;
-    report?: { path?: string };
+    evidence_files?: string[];
+    report?: { path?: string; ok?: boolean };
     data?: {
       rows?: Record<string, unknown>[];
       columns?: string[];
@@ -65,6 +74,9 @@ export interface TaskPayload {
 export interface FormattedAssistant {
   content: string;
   table?: ResultTable;
+  evidencePath?: string;
+  evidenceFiles?: string[];
+  reportPath?: string;
 }
 
 const COL_LABELS: Record<string, string> = {
@@ -153,18 +165,74 @@ export async function fetchTask(taskId: string): Promise<TaskPayload> {
   return r.json();
 }
 
+export function scratchpadDownloadUrl(path: string): string {
+  let p = String(path || "").replace(/\\/g, "/").trim();
+  if (p.startsWith("./")) p = p.slice(2);
+  if (p.startsWith(".scratchpad/")) p = p.slice(".scratchpad/".length);
+  else if (p.startsWith("scratchpad/")) p = p.slice("scratchpad/".length);
+  p = p.replace(/^\/+/, "");
+  return `/download/${p}`;
+}
+
+export function scratchpadBasename(path: string): string {
+  const p = String(path || "").replace(/\\/g, "/");
+  const i = p.lastIndexOf("/");
+  return i >= 0 ? p.slice(i + 1) : p;
+}
+
+/** 触发浏览器下载 scratchpad 内单个文件。 */
+export function downloadScratchpadPath(path: string): void {
+  const url = scratchpadDownloadUrl(path);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = scratchpadBasename(path) || "download";
+  a.rel = "noopener";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+export async function downloadReportBundle(payload: {
+  title: string;
+  markdown: string;
+  paths: string[];
+  filenameHint?: string;
+}): Promise<void> {
+  const r = await fetch("/api/v1/reports/bundle", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      title: payload.title,
+      markdown: payload.markdown,
+      paths: payload.paths,
+    }),
+  });
+  if (!r.ok) throw new Error("打包下载失败");
+  const blob = await r.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = payload.filenameHint || "analysis_bundle.zip";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 export function formatResult(result: TaskPayload["final_result"]): FormattedAssistant {
   if (!result) return { content: "(无结果)" };
   const mode = result.mode || "unknown";
   const lines: string[] = [];
-  // slash 终态是 Markdown 报表；Agent 终态是叙事三段式。不在正文塞说教。
   if (mode === "error" || result.error) {
     lines.push("【执行失败】");
   }
   lines.push(result.answer || "");
-  if (result.report?.path) lines.push(`\n报告: ${result.report.path}`);
 
-  // slash：用结构化表（中文列名）；Agent：表格写在 Markdown「支撑数据」里，避免双表。
+  const evidenceFiles = (result.evidence_files || []).filter(Boolean);
+  const evidencePath = result.evidence_path || evidenceFiles[evidenceFiles.length - 1];
+  const reportPath = result.report?.path;
+
+  // slash：用结构化表；Agent：表格写在 Markdown「支撑数据」里，避免双表。
   const answer = result.answer || "";
   const wantTable =
     mode === "fixed_slash" ||
@@ -173,6 +241,9 @@ export function formatResult(result: TaskPayload["final_result"]): FormattedAssi
   return {
     content: lines.join("\n").trim(),
     table: wantTable ? buildResultTable(result.data) : undefined,
+    evidencePath,
+    evidenceFiles: evidenceFiles.length ? evidenceFiles : evidencePath ? [evidencePath] : undefined,
+    reportPath,
   };
 }
 
@@ -205,7 +276,17 @@ export function createSession(title = "新分析"): Session {
 export function newMessage(
   role: ChatRole,
   content: string,
-  table?: ResultTable
+  table?: ResultTable,
+  extras?: Partial<
+    Pick<ChatMessage, "taskId" | "evidencePath" | "evidenceFiles" | "reportPath">
+  >
 ): ChatMessage {
-  return { id: uid(), role, content, createdAt: Date.now(), table };
+  return {
+    id: uid(),
+    role,
+    content,
+    createdAt: Date.now(),
+    table,
+    ...extras,
+  };
 }

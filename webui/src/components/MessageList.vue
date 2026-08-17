@@ -1,6 +1,12 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
-import { columnLabel, formatCellValue, type ChatMessage } from "../api";
+import {
+  columnLabel,
+  downloadScratchpadPath,
+  formatCellValue,
+  scratchpadBasename,
+  type ChatMessage,
+} from "../api";
 import { renderMarkdown } from "../markdown";
 
 const props = defineProps<{ messages: ChatMessage[] }>();
@@ -18,8 +24,22 @@ const rendered = computed(() =>
   props.messages.map((m) => ({
     ...m,
     html: m.role === "assistant" ? renderMarkdown(m.content) : "",
+    evidenceList: uniqueEvidence(m),
   }))
 );
+
+function uniqueEvidence(m: ChatMessage): string[] {
+  const raw = [...(m.evidenceFiles || []), ...(m.evidencePath ? [m.evidencePath] : [])];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const p of raw) {
+    const n = p.replace(/\\/g, "/");
+    if (!n || seen.has(n)) continue;
+    seen.add(n);
+    out.push(n);
+  }
+  return out;
+}
 </script>
 
 <template>
@@ -51,6 +71,31 @@ const rendered = computed(() =>
             </tbody>
           </table>
         </div>
+      </div>
+      <div
+        v-if="m.role === 'assistant' && (m.evidenceList.length || m.reportPath)"
+        class="artifacts"
+      >
+        <span class="artifacts-label">产物</span>
+        <button
+          v-for="ev in m.evidenceList"
+          :key="ev"
+          type="button"
+          class="art-btn"
+          :title="ev"
+          @click="downloadScratchpadPath(ev)"
+        >
+          下载证据 · {{ scratchpadBasename(ev) }}
+        </button>
+        <button
+          v-if="m.reportPath"
+          type="button"
+          class="art-btn art-btn-report"
+          :title="m.reportPath"
+          @click="downloadScratchpadPath(m.reportPath!)"
+        >
+          下载单次报告 · {{ scratchpadBasename(m.reportPath) }}
+        </button>
       </div>
     </article>
   </div>
@@ -142,6 +187,25 @@ pre {
   font-weight: 650;
 }
 
+.rich :deep(.md-link) {
+  color: var(--amber-deep);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.rich :deep(.md-link:hover) {
+  color: var(--oak);
+}
+
+.rich :deep(code) {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.82em;
+  background: #f1f3ee;
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
 .rich :deep(.code-block) {
   margin: 8px 0 12px;
   border: 1px solid #d8d3c8;
@@ -215,6 +279,47 @@ pre {
 
 .table-wrap {
   margin-top: 10px;
+}
+
+.artifacts {
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.artifacts-label {
+  font-size: 0.7rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  text-transform: uppercase;
+  margin-right: 2px;
+}
+
+.art-btn {
+  border: 1px solid #d7c19a;
+  background: #fff8eb;
+  color: var(--amber-deep);
+  border-radius: 7px;
+  padding: 4px 9px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.art-btn-report {
+  background: #eef3ea;
+  border-color: #c5d0bc;
+  color: var(--oak);
+}
+
+.art-btn:hover {
+  filter: brightness(0.97);
 }
 
 .table-caption {

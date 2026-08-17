@@ -15,6 +15,7 @@ import MessageList from "./components/MessageList.vue";
 import Composer from "./components/Composer.vue";
 import RunLog from "./components/RunLog.vue";
 import { deriveSessionTitle } from "./sessionTitle";
+import { canExportSessionReport, downloadSessionReport } from "./sessionReport";
 
 const STORAGE_KEY = "lumen_query_bench_sessions_v5";
 const LAYOUT_KEY = "lumen_query_bench_layout_v1";
@@ -40,6 +41,28 @@ const inflightPolls = new Set<string>();
 const active = computed(() => sessions.value.find((s) => s.id === activeId.value) || null);
 /** 仅锁定当前会话的输入；其它会话可并行提问 */
 const activeBusy = computed(() => active.value?.status === "running");
+/** 至少完成过一轮分析对话后，才可整理下载 Markdown 报告 */
+const canDownloadReport = computed(() => canExportSessionReport(active.value));
+
+const exporting = ref(false);
+
+async function onDownloadReport() {
+  if (!active.value || !canExportSessionReport(active.value) || exporting.value) return;
+  exporting.value = true;
+  try {
+    await downloadSessionReport(active.value);
+  } catch (e: any) {
+    const cur = active.value;
+    if (cur) {
+      cur.messages.push(
+        newMessage("assistant", `报告打包失败: ${e?.message || e}`)
+      );
+      persist();
+    }
+  } finally {
+    exporting.value = false;
+  }
+}
 
 const layoutStyle = computed(() => ({
   gridTemplateColumns: `${leftW.value}px 6px minmax(0, 1fr) 6px ${rightW.value}px`,
@@ -188,7 +211,14 @@ async function pollRunningSessions() {
 
       if (task.status === "succeeded" || task.status === "failed") {
         const formatted = formatResult(task.final_result);
-        s.messages.push(newMessage("assistant", formatted.content, formatted.table));
+        s.messages.push(
+          newMessage("assistant", formatted.content, formatted.table, {
+            taskId,
+            evidencePath: formatted.evidencePath,
+            evidenceFiles: formatted.evidenceFiles,
+            reportPath: formatted.reportPath,
+          })
+        );
         s.deliveredTaskId = taskId;
         s.status = task.status;
       } else {
@@ -305,6 +335,25 @@ onUnmounted(() => {
       />
 
       <section class="stage">
+        <div v-if="active" class="stage-bar">
+          <div class="stage-title">
+            <strong>{{ active.title }}</strong>
+            <span v-if="!canDownloadReport" class="hint">完成至少一轮分析后可整理下载（含原始证据）</span>
+          </div>
+          <button
+            type="button"
+            class="export-btn"
+            :disabled="!canDownloadReport || exporting"
+            :title="
+              canDownloadReport
+                ? '打包下载：report.md + evidence/（MD 内可点击跳转证据）'
+                : '需至少完成一轮分析对话后才能整理下载'
+            "
+            @click="onDownloadReport"
+          >
+            {{ exporting ? "打包中…" : "整理并下载报告" }}
+          </button>
+        </div>
         <MessageList v-if="active" :messages="active.messages" />
         <Composer :disabled="activeBusy" @send="ask" />
       </section>
@@ -455,12 +504,62 @@ onUnmounted(() => {
   min-width: 0;
   min-height: 0;
   display: grid;
-  grid-template-rows: 1fr auto;
+  grid-template-rows: auto 1fr auto;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
   overflow: hidden;
+}
+
+.stage-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  background: #f7f8f4;
+}
+
+.stage-title {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.stage-title strong {
+  font-size: 0.92rem;
+  color: var(--oak);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stage-title .hint {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.export-btn {
+  flex-shrink: 0;
+  border: 1px solid #d7c19a;
+  background: #fff8eb;
+  color: var(--amber-deep);
+  border-radius: 8px;
+  padding: 7px 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.export-btn:hover:not(:disabled) {
+  background: #ffefd2;
+}
+
+.export-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .disclaimer {

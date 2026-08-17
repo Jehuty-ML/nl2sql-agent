@@ -248,6 +248,8 @@ python scripts\smoke_basic.py
 | `GET` | `/health` | 健康检查 |
 | `POST` | `/api/v1/chat` | 对话（`sync` 可同步/异步） |
 | `GET` | `/api/v1/task/{task_id}` | 任务进度 |
+| `GET` | `/download/{path}` | 下载 `.scratchpad/` 内文件（证据 / 单次报告等；禁止目录穿越） |
+| `POST` | `/api/v1/reports/bundle` | 会话报告打包：`report.md` + `evidence/*.json`（MD 内相对链接可跳转） |
 
 ---
 
