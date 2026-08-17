@@ -126,6 +126,29 @@ def _tool_step_title(fn: str, args: dict[str, Any]) -> str:
     return f"调用工具 · {fn}"
 
 
+def _tool_return_title(fn: str, args: dict[str, Any]) -> str:
+    if fn == "get_fixed_analysis":
+        key = args.get("key") or "?"
+        return f"工具返回 · 固定分析 ({key})"
+    if fn == "db_query":
+        return "工具返回 · 动态 SQL"
+    if fn == "export_report":
+        return "工具返回 · 导出报告"
+    return f"工具返回 · {fn}"
+
+
+def _extract_think_text(msg: dict[str, Any]) -> str:
+    """合并 content / reasoning_content，供 Run Log「LLM 思考」全文展示。"""
+    parts: list[str] = []
+    reasoning = (msg.get("reasoning_content") or msg.get("reasoning") or "").strip()
+    if reasoning:
+        parts.append(reasoning)
+    content = (msg.get("content") or "").strip()
+    if content and content not in parts:
+        parts.append(content)
+    return "\n\n".join(parts).strip()
+
+
 def _fmt_tool_args(fn: str, args: dict[str, Any]) -> str:
     if fn == "get_fixed_analysis":
         parts = [f"key={args.get('key')}"]
@@ -302,19 +325,30 @@ def _run_llm_react(task_id: str, query: str) -> dict[str, Any]:
                     f"HTTP {resp.status_code}: {detail}"
                 )
             msg = _sanitize_assistant_message(resp.json()["choices"][0]["message"])
-            think = (msg.get("content") or "").strip()
+            think = _extract_think_text(msg)
             tool_calls = msg.get("tool_calls") or []
+            think_step = f"LLM 思考 · 第 {round_no} 轮"
 
             if think:
-                task_store.append_progress(
+                task_store.update_latest_progress(
                     task_id,
-                    f"模型想法 · 第 {round_no} 轮",
+                    think_step,
                     _clip(think, 480),
                     full=think,
+                    match_step=think_step,
+                )
+            else:
+                task_store.update_latest_progress(
+                    task_id,
+                    think_step,
+                    "本轮无文字思考，直接进入工具调用"
+                    if tool_calls
+                    else "本轮无文字思考",
+                    match_step=think_step,
                 )
 
             if not tool_calls:
-                answer = msg.get("content") or ""
+                answer = (msg.get("content") or "").strip() or think
                 task_store.append_progress(
                     task_id,
                     "组织最终结论",
@@ -394,9 +428,9 @@ def _run_llm_react(task_id: str, query: str) -> dict[str, Any]:
                     pretty = result
                 task_store.append_progress(
                     task_id,
-                    "工具返回",
+                    _tool_return_title(fn, args),
                     _observe_summary(result),
-                    full=pretty if len(pretty) > 160 else None,
+                    full=pretty,
                 )
 
                 tool_entry: dict[str, Any] = {

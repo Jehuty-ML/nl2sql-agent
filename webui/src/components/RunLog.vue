@@ -118,9 +118,19 @@ function stepBody(p: ProgressStep): string {
   return (p.full || p.detail || "").trim();
 }
 
+function isWaitingPlaceholder(p: ProgressStep): boolean {
+  const d = (p.detail || "").trim();
+  return /等待模型/.test(d) && !p.full;
+}
+
 function canOpen(p: ProgressStep): boolean {
+  if (isWaitingPlaceholder(p)) return false;
   const body = stepBody(p);
   if (!body) return false;
+  // 思考 / 工具 / 结论：有正文即可点开（含短 SQL / 短 JSON）
+  if (/思考|想法|结论|工具|SQL|观察|决策|导出|查询完成/i.test(p.step)) {
+    return !/^本轮无文字思考/.test(body);
+  }
   return Boolean(
     p.full ||
       body.length > 120 ||
@@ -750,5 +760,49 @@ ol {
 .rich :deep(th) {
   background: #f4f6f1;
   font-weight: 600;
+}
+
+.rich :deep(.doc-think) {
+  font-size: 0.9rem;
+  line-height: 1.65;
+  color: #2a332c;
+}
+
+.rich :deep(.doc-think .md-p),
+.rich :deep(.doc-think .md-li) {
+  margin: 0 0 10px;
+}
+
+.rich :deep(.doc-think .md-h3),
+.rich :deep(.doc-think .md-h4) {
+  margin: 18px 0 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #e6e0d4;
+  color: var(--oak);
+  font-family: var(--display);
+}
+
+.rich :deep(.doc-think .md-h3:first-child),
+.rich :deep(.doc-think .md-h4:first-child) {
+  margin-top: 0;
+}
+
+.rich :deep(.doc-think code) {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 0.84em;
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  background: #eef2ea;
+  border: 1px solid #d8e0d4;
+}
+
+.rich :deep(.doc-json .md-h4) {
+  margin: 16px 0 8px;
+  color: var(--oak);
+  font-family: var(--display);
+}
+
+.rich :deep(.doc-json .md-h4:first-of-type) {
+  margin-top: 4px;
 }
 </style>

@@ -56,6 +56,15 @@ def create_task(query: str) -> str:
     return tid
 
 
+def _apply_full(entry: dict[str, Any], full: str | None) -> None:
+    """写入 full：只要有原文就保留，便于前端「查看全文」（可与 detail 相同）。"""
+    if full is None:
+        return
+    text = str(full).strip()
+    if text:
+        entry["full"] = text
+
+
 def append_progress(
     task_id: str,
     step: str,
@@ -72,12 +81,53 @@ def append_progress(
                 return
             _TASKS[task_id] = t
         entry: dict[str, Any] = {"step": step, "detail": detail, "ts": time.time()}
-        if full and full.strip() and full.strip() != str(detail).strip():
-            entry["full"] = full
+        _apply_full(entry, full)
         t["progress"].append(entry)
         t["status"] = "running"
         t["updated_at"] = time.time()
         _persist(t)
+
+
+def update_latest_progress(
+    task_id: str,
+    step: str,
+    detail: str = "",
+    *,
+    full: str | None = None,
+    match_step: str | None = None,
+) -> bool:
+    """就地更新最近一条进度（可选按 step 匹配）。用于把「等待中」占位换成真实内容。"""
+    with _lock:
+        t = _TASKS.get(task_id)
+        if not t:
+            t = _load_from_disk(task_id)
+            if not t:
+                return False
+            _TASKS[task_id] = t
+        progress = t.get("progress") or []
+        if not progress:
+            return False
+        idx = len(progress) - 1
+        if match_step is not None:
+            for i in range(len(progress) - 1, -1, -1):
+                if progress[i].get("step") == match_step:
+                    idx = i
+                    break
+            else:
+                return False
+        entry = dict(progress[idx])
+        entry["step"] = step
+        entry["detail"] = detail
+        entry["ts"] = time.time()
+        if full is not None:
+            entry.pop("full", None)
+            _apply_full(entry, full)
+        progress[idx] = entry
+        t["progress"] = progress
+        t["status"] = "running"
+        t["updated_at"] = time.time()
+        _persist(t)
+        return True
 
 
 def finish_task(task_id: str, final_result: dict[str, Any], ok: bool = True) -> None:

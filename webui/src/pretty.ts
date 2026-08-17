@@ -120,10 +120,14 @@ function codeBlock(code: string, lang: string, label?: string): string {
 }
 
 function looksLikeSql(text: string): boolean {
-  const t = text.trim();
+  const t = text.trim().replace(/^SQL\s*[:：]\s*/i, "");
   if (t.length < 8) return false;
   if (/^[\[{]/.test(t)) return false;
   return /^\s*(WITH|SELECT|INSERT|UPDATE|DELETE|CREATE|EXPLAIN|DESCRIBE|SHOW)\b/i.test(t);
+}
+
+function stripSqlPrefix(text: string): string {
+  return text.replace(/^SQL\s*[:：]\s*/i, "").trim();
 }
 
 function tryParseJson(text: string): unknown | undefined {
@@ -317,7 +321,7 @@ export function renderMarkdown(text: string): string {
  * Run Log 全文：按内容自适应
  * - 工具 JSON（含 rows/sql）→ 元信息 + 表 + SQL 高亮
  * - 纯 JSON / SQL → 代码块高亮
- * - 其它 → Markdown
+ * - LLM 思考 / Markdown → 结构化排版
  */
 export function renderFullContent(text: string, stepHint = ""): string {
   const raw = String(text || "").trim();
@@ -332,7 +336,7 @@ export function renderFullContent(text: string, stepHint = ""): string {
         "sql" in obj ||
         "analysis_key" in obj ||
         "ok" in obj ||
-        /工具返回|观察|固定分析/i.test(stepHint)
+        /工具返回|观察|固定分析|动态\s*SQL|db_query/i.test(stepHint)
       ) {
         return `<div class="doc-json">${renderToolPayload(obj)}</div>`;
       }
@@ -340,9 +344,21 @@ export function renderFullContent(text: string, stepHint = ""): string {
     return codeBlock(JSON.stringify(parsed, null, 2), "json", "JSON");
   }
 
-  if (/sql|动态 SQL|db_query/i.test(stepHint) || looksLikeSql(raw)) {
-    return codeBlock(raw, "sql", "SQL");
+  const sqlCandidate = stripSqlPrefix(raw);
+  if (
+    /sql|动态\s*SQL|db_query|调用工具/i.test(stepHint) ||
+    looksLikeSql(raw) ||
+    looksLikeSql(sqlCandidate)
+  ) {
+    if (looksLikeSql(sqlCandidate)) {
+      return codeBlock(sqlCandidate, "sql", "SQL");
+    }
   }
 
-  return `<div class="doc-md">${renderMarkdownBody(raw)}</div>`;
+  const md = renderMarkdownBody(raw);
+  const isThink = /思考|想法|结论|决策|LLM/i.test(stepHint);
+  if (isThink) {
+    return `<div class="doc-md doc-think">${md}</div>`;
+  }
+  return `<div class="doc-md">${md}</div>`;
 }
