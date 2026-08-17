@@ -21,11 +21,21 @@ watch(
 );
 
 const rendered = computed(() =>
-  props.messages.map((m) => ({
-    ...m,
-    html: m.role === "assistant" ? renderMarkdown(m.content) : "",
-    evidenceList: uniqueEvidence(m),
-  }))
+  props.messages.map((m) => {
+    let content = m.content;
+    // 横幅已展示 deliveryNotice 时，正文去掉重复前缀，避免双份提示
+    if (m.role === "assistant" && m.deliveryNotice) {
+      const n = m.deliveryNotice.trim();
+      if (content.trimStart().startsWith(n)) {
+        content = content.trimStart().slice(n.length).replace(/^\n+/, "");
+      }
+    }
+    return {
+      ...m,
+      html: m.role === "assistant" ? renderMarkdown(content) : "",
+      evidenceList: uniqueEvidence(m),
+    };
+  })
 );
 
 function uniqueEvidence(m: ChatMessage): string[] {
@@ -51,6 +61,13 @@ function uniqueEvidence(m: ChatMessage): string[] {
       :class="m.role"
     >
       <span class="who">{{ m.role === "user" ? "You" : m.role === "assistant" ? "Agent" : "Guide" }}</span>
+      <div
+        v-if="m.role === 'assistant' && m.deliveryNotice"
+        class="delivery-banner"
+        :class="{ partial: m.deliveryStatus === 'partial' }"
+      >
+        {{ m.deliveryNotice }}
+      </div>
       <div v-if="m.role === 'assistant'" class="rich" v-html="m.html" />
       <pre v-else>{{ m.content }}</pre>
       <div v-if="m.table?.rows?.length" class="table-wrap">
@@ -118,6 +135,21 @@ function uniqueEvidence(m: ChatMessage): string[] {
   border-radius: 12px;
   padding: 10px 12px;
   border: 1px solid var(--line);
+}
+
+.delivery-banner {
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid #e0c48a;
+  background: #fff8eb;
+  color: #6a4a12;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.delivery-banner.partial {
+  border-color: #e0c48a;
 }
 
 .msg.user {

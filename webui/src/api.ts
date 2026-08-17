@@ -20,6 +20,9 @@ export interface ChatMessage {
   evidenceFiles?: string[];
   /** 服务端写出的单次分析报告 md */
   reportPath?: string;
+  /** 交付薄地板提示（无硬栏） */
+  deliveryNotice?: string;
+  deliveryStatus?: string;
 }
 
 export interface ProgressStep {
@@ -68,6 +71,9 @@ export interface TaskPayload {
     };
     mode?: string;
     error?: string;
+    status?: string;
+    delivery_notice?: string;
+    delivery_gate?: string;
   };
 }
 
@@ -77,6 +83,8 @@ export interface FormattedAssistant {
   evidencePath?: string;
   evidenceFiles?: string[];
   reportPath?: string;
+  deliveryNotice?: string;
+  deliveryStatus?: string;
 }
 
 const COL_LABELS: Record<string, string> = {
@@ -244,6 +252,8 @@ export function formatResult(result: TaskPayload["final_result"]): FormattedAssi
     evidencePath,
     evidenceFiles: evidenceFiles.length ? evidenceFiles : evidencePath ? [evidencePath] : undefined,
     reportPath,
+    deliveryNotice: result.delivery_notice,
+    deliveryStatus: result.status,
   };
 }
 
@@ -278,7 +288,15 @@ export function newMessage(
   content: string,
   table?: ResultTable,
   extras?: Partial<
-    Pick<ChatMessage, "taskId" | "evidencePath" | "evidenceFiles" | "reportPath">
+    Pick<
+      ChatMessage,
+      | "taskId"
+      | "evidencePath"
+      | "evidenceFiles"
+      | "reportPath"
+      | "deliveryNotice"
+      | "deliveryStatus"
+    >
   >
 ): ChatMessage {
   return {

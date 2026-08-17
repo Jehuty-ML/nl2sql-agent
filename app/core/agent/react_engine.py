@@ -10,6 +10,7 @@ import httpx
 from app.bi.fixed_queries import FIXED_QUERIES
 from app.config import settings
 from app.core.agent.evidence import attach_evidence_index, save_evidence
+from app.core.agent.delivery_floor import apply_delivery_soft_floor
 from app.core.routing.slash_router import help_text, route_input
 from app.core.session import task_store
 from app.core.tools.clickhouse_tool import tool_db_query
@@ -408,7 +409,7 @@ def _run_llm_react(task_id: str, query: str) -> dict[str, Any]:
                 table = _extract_last_table(tool_traces)
                 if table:
                     out["data"] = table
-                return out
+                return apply_delivery_soft_floor(out)
 
             names = []
             for call in tool_calls:
@@ -489,21 +490,26 @@ def _run_llm_react(task_id: str, query: str) -> dict[str, Any]:
                 }
                 try:
                     parsed = json.loads(result)
-                    if (
-                        isinstance(parsed, dict)
-                        and parsed.get("ok")
-                        and isinstance(parsed.get("rows"), list)
-                        and parsed["rows"]
-                    ):
-                        tool_entry["table"] = {
-                            "analysis_key": parsed.get("analysis_key"),
-                            "name": parsed.get("name"),
-                            "row_count": parsed.get("row_count", len(parsed["rows"])),
-                            "columns": parsed.get("columns")
-                            or list(parsed["rows"][0].keys()),
-                            "rows": parsed["rows"][:20],
-                            "sql": parsed.get("sql"),
-                        }
+                    if isinstance(parsed, dict):
+                        tool_entry["ok"] = bool(parsed.get("ok"))
+                        if "row_count" in parsed:
+                            tool_entry["row_count"] = parsed.get("row_count")
+                        elif isinstance(parsed.get("rows"), list):
+                            tool_entry["row_count"] = len(parsed["rows"])
+                        if (
+                            parsed.get("ok")
+                            and isinstance(parsed.get("rows"), list)
+                            and parsed["rows"]
+                        ):
+                            tool_entry["table"] = {
+                                "analysis_key": parsed.get("analysis_key"),
+                                "name": parsed.get("name"),
+                                "row_count": parsed.get("row_count", len(parsed["rows"])),
+                                "columns": parsed.get("columns")
+                                or list(parsed["rows"][0].keys()),
+                                "rows": parsed["rows"][:20],
+                                "sql": parsed.get("sql"),
+                            }
                 except (json.JSONDecodeError, TypeError, IndexError, KeyError):
                     pass
                 tool_traces.append(tool_entry)
@@ -518,14 +524,16 @@ def _run_llm_react(task_id: str, query: str) -> dict[str, Any]:
 
     task_store.append_progress(task_id, "达到轮次上限", "已跑满 6 轮仍未收敛，请缩小问题或改用 slash")
     evidence = save_evidence(task_id, "llm_timeout", {"tool_traces": tool_traces})
-    return {
-        "answer": "工具循环超过轮次上限，请缩小问题或改用 /dau /funnel 等固定指令。",
-        "mode": "agent_loop",
-        "provider": llm["provider"],
-        "model": llm["model"],
-        "evidence_path": evidence,
-        "tool_traces": tool_traces,
-    }
+    return apply_delivery_soft_floor(
+        {
+            "answer": "工具循环超过轮次上限，请缩小问题或改用 /dau /funnel 等固定指令。",
+            "mode": "agent_loop",
+            "provider": llm["provider"],
+            "model": llm["model"],
+            "evidence_path": evidence,
+            "tool_traces": tool_traces,
+        }
+    )
 
 
 def run_agent(task_id: str, query: str) -> dict[str, Any]:
@@ -574,8 +582,19 @@ def run_agent(task_id: str, query: str) -> dict[str, Any]:
         task_store.append_progress(
             task_id,
             "完成",
-            f"mode={result.get('mode')}",
+            f"mode={result.get('mode')}"
+            + (
+                f" · status={result.get('status')}"
+                if result.get("status")
+                else ""
+            ),
         )
+        if result.get("delivery_notice"):
+            task_store.append_progress(
+                task_id,
+                "交付提示",
+                str(result.get("delivery_notice")),
+            )
         attach_evidence_index(result, task_id)
         task_store.finish_task(task_id, result, ok=True)
         return result
