@@ -103,6 +103,15 @@ flowchart LR
 
 <p align="center"><sub>Run Log 特写：收到问题 → 路由 → 固定分析 / 工具调用 → 完成</sub></p>
 
+### 4. 报告与证据下载
+
+| 入口 | 说明 |
+|------|------|
+| 消息底部 **产物** | 单次分析的证据 JSON、slash 写出的单次报告 MD，走 `/download/...` |
+| 顶栏 **整理并下载报告** | 至少完成一轮分析后可用；打包 zip：`report.md` + `evidence/*.json` |
+
+解压后用编辑器打开 `report.md`，其中的 `./evidence/...` 相对链接可直接点开原始证据。无证据时仅下载 Markdown。
+
 ---
 
 ## 能力摘要
@@ -111,8 +120,8 @@ flowchart LR
 
 | 输入 | 路径 | LLM | 交付形态 |
 |------|------|-----|----------|
-| `/dau` `/funnel` `/retention` `/overview` `/channel` `/help`（示例） | 固定 SQL | 否 | 标题 + 元信息 + **数据表** |
-| 自然语言 | ReAct Agent | 是 | **结论** + 支撑数据 + **运营建议** |
+| `/dau` `/funnel` `/retention` `/overview` `/channel` `/help`（示例） | 固定 SQL | 否 | 标题 + 元信息 + **数据表**（并可落盘报告 / 证据） |
+| 自然语言 | ReAct Agent | 是 | **结论** + 支撑数据 + **运营建议**（证据可下载 / 会话可打包） |
 
 只有显式 `/` 会在进 Agent 前硬拦截；句子里的业务词不会抢跑固定分析。快捷按钮发的是 slash，不是中文短句。
 
@@ -122,7 +131,9 @@ flowchart LR
 |------|------|
 | `get_fixed_analysis` | 执行已注册的标准分析（可带日期窗） |
 | `db_query` | 只读 SQL 下钻（`SELECT` / `WITH`；工具层 + 库侧只读双重拦截） |
-| `export_report` | 导出结构化分析报告 |
+| `export_report` | 导出结构化分析报告（写入 `.scratchpad/reports/`） |
+
+问数台还可把**整段会话**整理为 Markdown，并与 `.scratchpad/evidence/` 下原始证据一并打成 zip（见上文「报告与证据下载」）。
 
 ### 只读安全（三道防线）
 
