@@ -48,5 +48,5 @@ node .\scripts\capture_readme_shots.mjs
 node .\scripts\capture_readme_demo_gif.mjs
 ```
 
-- 静态图写入 `docs/screenshots/01`–`04`（隐藏状态栏模型 ID）
+- 静态图写入 `docs/screenshots/01`–`04`、`04b`（`04` 为 Run Log 栏含「查看全文」，`04b` 为点开全文抽屉；状态栏模型 ID 已隐藏）
 - 演示 GIF 写入 `docs/screenshots/05-demo.gif`（约 3× 加速）

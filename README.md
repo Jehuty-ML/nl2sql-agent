@@ -97,13 +97,15 @@ flowchart LR
 
 ### 3. Run Log：证据链可回看
 
-思考轮次、工具入参、观察结果、完成态都在右侧时间线；可折叠、贴底滚动。点 **查看全文** 可打开抽屉：LLM 思考按 Markdown 排版，动态 SQL / 工具返回展示高亮 SQL 与结果表（详见下文「数据全链路可靠性」）。
+思考、调工具、观察结果都在右侧时间线。步骤旁有 **查看全文**；点开后抽屉展示美化后的思考 / SQL / 结果表，便于核对数字从哪来。
 
 <p align="center">
-  <img src="docs/screenshots/04-run-log.png" alt="Run Log 证据链特写" width="360" />
+  <img src="docs/screenshots/04-run-log.png" alt="Run Log：步骤旁可点查看全文" width="320" />
+  &nbsp;
+  <img src="docs/screenshots/04b-run-log-viewer.png" alt="点开查看全文：SQL 高亮与结果表" width="640" />
 </p>
 
-<p align="center"><sub>Run Log 特写：收到问题 → 路由 → 固定分析 / 工具调用 → 完成</sub></p>
+<p align="center"><sub>左：Run Log 时间线（含「查看全文」）· 右：点开后的全文抽屉（SQL + 结果表）</sub></p>
 
 ### 4. 报告与证据下载
 
