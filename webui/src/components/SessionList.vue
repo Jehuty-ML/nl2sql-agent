@@ -17,13 +17,16 @@ defineEmits<{
   <aside class="side">
     <button class="new" type="button" @click="$emit('create')">＋ 新分析</button>
     <div class="list">
-      <button
+      <div
         v-for="s in sessions"
         :key="s.id"
-        type="button"
         class="item"
         :class="{ active: s.id === activeId }"
+        role="button"
+        tabindex="0"
         @click="$emit('select', s.id)"
+        @keydown.enter.prevent="$emit('select', s.id)"
+        @keydown.space.prevent="$emit('select', s.id)"
       >
         <span class="title">{{ s.title }}</span>
         <span class="meta" :class="{ running: s.status === 'running' }">
@@ -37,7 +40,7 @@ defineEmits<{
         >
           ×
         </button>
-      </button>
+      </div>
     </div>
   </aside>
 </template>
@@ -85,10 +88,16 @@ defineEmits<{
   border-radius: 8px;
   padding: 10px 28px 10px 10px;
   color: var(--ink);
+  cursor: pointer;
 }
 
 .item:hover {
   background: #f1f4ee;
+}
+
+.item:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 1px;
 }
 
 .item.active {

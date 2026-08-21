@@ -59,6 +59,9 @@ class Settings(BaseSettings):
     llm_model: str = ""
     llm_timeout: float = 180.0
 
+    # 同一步内并行工具上限；1 = 强制串行（便于对照 / 压测降载）
+    max_parallel_tool_calls: int = 4
+
     dashscope_api_key: str = ""
     dashscope_base_url: str = ""
     dashscope_model: str = ""

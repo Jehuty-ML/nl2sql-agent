@@ -8,7 +8,9 @@
 [![ClickHouse](https://img.shields.io/badge/DB-ClickHouse-yellow.svg)](https://clickhouse.com/)
 [![Slash](https://img.shields.io/badge/Slash-no%20LLM%20required-lightgrey.svg)](#双通道交付)
 
-slash 固定分析 + ReAct 工具循环 → 只读查 ClickHouse → 表格、结论，以及可回看的 Run Log / 证据链。
+slash 固定分析 + ReAct 工具循环（**PTC 并行工具调用**）→ 只读查 ClickHouse → 表格、结论，以及可回看的 Run Log / 证据链。
+
+复杂或多需求提问时，Agent 可在同一步并行发起多条只读查询（如同时查 DAU、漏斗、渠道），总耗时接近最慢的那条，而不是各条串行相加，从而**显著加快**多指标对比与综合诊断。
 
 本仓库是通用问数引擎（路由、Agent、只读防护、问数台）。**LumenLearn（流明学堂）** 只是附带的虚构演示场景与合成数据，方便 clone 后立刻跑通；换成自有库与 `FIXED_QUERIES` 即可接真实业务。
 
@@ -26,6 +28,7 @@ slash 固定分析 + ReAct 工具循环 → 只读查 ClickHouse → 表格、�
 | 趋势解读 | `最近一周日活大概怎样？完课和练习有没有一起掉？给两条可执行的运营建议。` |
 | 漏斗诊断 | `学习漏斗里哪一步掉得最狠？可能原因和下一步动作是什么？` |
 | 渠道对比 | `各渠道完课率差多少？哪个值得加投放、哪个该先修内容？` |
+| 多需求并行（PTC） | `同时看最近一周日活、学习漏斗掉点、各渠道完课率，并给两条运营建议。` |
 
 > 无 LLM Key 时仍可点 slash；自然语言路径需配置 `.env` 中的 LLM。
 
@@ -37,6 +40,7 @@ slash 固定分析 + ReAct 工具循环 → 只读查 ClickHouse → 表格、�
 |--------|------------------|
 | 想接自有指标的数据/BI 团队 | 换连接、元数据与 `FIXED_QUERIES`，留下引擎与问数台 |
 | 想演示 NL2SQL / Agent 问数 | clone 后起示例 ClickHouse，立刻点 `/dau` 或中文提问 |
+| 要一次问多个指标、嫌串行太慢 | 自然语言走 **PTC**：同轮并行查数，复杂/多需求查询明显更快 |
 | 关心安全与可审计 | 只读三道防线 + 异常交付提示 + Run Log / 证据落盘，数字可回追 |
 
 ```text
@@ -44,7 +48,7 @@ slash 固定分析 + ReAct 工具循环 → 只读查 ClickHouse → 表格、�
    │
    ├─ /dau  /funnel  …     →  固定 SQL（不经 LLM）→ 数据表
    │
-   └─ 「最近一周日活怎样？」 →  ReAct Agent → 结论 + 表 + 建议
+   └─ 「最近一周日活怎样？」 →  ReAct Agent（可 PTC 并行多查）→ 结论 + 表 + 建议
                                               ↑
                                     Run Log：思考 / 调工具 / 观察
 ```
@@ -58,7 +62,8 @@ flowchart LR
   API --> R{路由}
   R -->|显式 /slash| FX[固定 SQL]
   R -->|自然语言| AG[ReAct Agent]
-  AG --> T[工具<br/>固定分析 / db_query / 导出]
+  AG --> PTC[PTC 并行工具<br/>多条只读查询同轮执行]
+  PTC --> T[工具<br/>固定分析 / db_query]
   FX --> CH[(ClickHouse 只读)]
   T --> CH
   FX --> OUT[表格 / 报告]
@@ -89,7 +94,7 @@ flowchart LR
 
 ### 2. 自然语言：结论 + 支撑数据 + 建议
 
-中文提问进入 Agent；模型可调用固定分析 / 动态 SQL / 导出报告，交付可核对的数字与运营建议。
+中文提问进入 Agent；模型可调用固定分析 / 动态 SQL。一次问多个独立指标时走 **PTC**（同轮并行工具调用），缩短复杂/多需求查询的等待时间。界面顶栏可「整理并下载报告」；Agent 默认不自动导出报告。
 
 ![自然语言 Agent 对话](docs/screenshots/03-agent-nl.png)
 
@@ -125,17 +130,29 @@ flowchart LR
 | 输入 | 路径 | LLM | 交付形态 |
 |------|------|-----|----------|
 | `/dau` `/funnel` `/retention` `/overview` `/channel` `/help`（示例） | 固定 SQL | 否 | 标题 + 元信息 + **数据表**（并可落盘报告 / 证据） |
-| 自然语言 | ReAct Agent | 是 | **结论** + 支撑数据 + **运营建议**（证据可下载 / 会话可打包） |
+| 自然语言 | ReAct Agent + **PTC** | 是 | **结论** + 支撑数据 + **运营建议**；多指标同轮并行查数，复杂查询更快 |
 
 只有显式 `/` 会在进 Agent 前硬拦截；句子里的业务词不会抢跑固定分析。快捷按钮发的是 slash，不是中文短句。
+
+### PTC 并行工具调用
+
+自然语言路径支持 **PTC（Parallel Tool Calls）**：模型在同一轮可同时发起多条只读工具（`get_fixed_analysis` / `db_query`），运行时并行执行，结果仍按调用顺序写回 Run Log 与上下文。
+
+| 场景 | 效果 |
+|------|------|
+| 复杂诊断（漏斗 + 留存 + 渠道一起看） | 少一轮串行往返，总延迟接近最慢的那条查询 |
+| 多需求对比（「同时看日活、完课、练习」） | 一次提问并行取数，再统一写结论与建议 |
+| 有依赖的下钻（后一条要用前一条结果） | 仍分多轮；写盘类 `export_report` 为屏障，默认不自动导出 |
+
+上限由环境变量 `MAX_PARALLEL_TOOL_CALLS` 控制（默认 `4`；设为 `1` 可强制串行对照）。
 
 ### Agent 工具
 
 | 工具 | 作用 |
 |------|------|
-| `get_fixed_analysis` | 执行已注册的标准分析（可带日期窗） |
-| `db_query` | 只读 SQL 下钻（`SELECT` / `WITH`；工具层 + 库侧只读双重拦截） |
-| `export_report` | 导出结构化分析报告（写入 `.scratchpad/reports/`） |
+| `get_fixed_analysis` | 执行已注册的标准分析（可带日期窗；可与其他只读工具 PTC 并行） |
+| `db_query` | 只读 SQL 下钻（`SELECT` / `WITH`；工具层 + 库侧只读双重拦截；可 PTC 并行） |
+| `export_report` | 仅当用户明确要求导出时调用；日常请用顶栏「整理并下载报告」 |
 
 问数台还可把**整段会话**整理为 Markdown，并与 `.scratchpad/evidence/` 下原始证据一并打成 zip（见上文「报告与证据下载」）。
 
@@ -215,7 +232,7 @@ flowchart LR
 
 | | 说明 |
 |--|------|
-| **本仓库** | NL2SQL 问数：路由 / ReAct / 只读防护 / 问数台 |
+| **本仓库** | NL2SQL 问数：路由 / ReAct + PTC 并行查数 / 只读防护 / 问数台 |
 | **演示数据** | `infra/` ClickHouse、`scripts/generate_demo_data.py`、示例 slash |
 | **可选采集** | [lumenlearn-event-pipeline](https://github.com/Jehuty-ML/lumenlearn-event-pipeline)（事件契约与本仓示例对齐） |
 
@@ -226,7 +243,7 @@ flowchart LR
 | 层 | 选型 |
 |----|------|
 | API | FastAPI · 任务进度落盘 |
-| Agent | 单 Agent ReAct · OpenAI 兼容 Chat Completions |
+| Agent | 单 Agent ReAct · **PTC 并行工具调用** · OpenAI 兼容 Chat Completions |
 | 数据 | ClickHouse（演示库见 `infra/`） |
 | 前端 | Vue 3 + Vite |
 
@@ -297,6 +314,7 @@ python scripts\smoke_basic.py
 | `CH_*` | ClickHouse；示例默认为 `lumenlearn` + `lumen_ro` |
 | `LLM_PROVIDER` | `dashscope` / `deepseek` / `ark` / `ollama` / `openai` |
 | `LLM_API_*` | 可选总覆盖 |
+| `MAX_PARALLEL_TOOL_CALLS` | PTC 同轮并行工具上限（默认 `4`；设为 `1` 强制串行） |
 
 无 API Key 时 slash 仍可用；自然语言需配置 LLM。
 

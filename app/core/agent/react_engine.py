@@ -11,6 +11,12 @@ from app.bi.fixed_queries import FIXED_QUERIES
 from app.config import settings
 from app.core.agent.evidence import attach_evidence_index, save_evidence
 from app.core.agent.delivery_floor import apply_delivery_soft_floor
+from app.core.agent.parallel_tools import (
+    ToolCallOutcome,
+    parse_tool_calls,
+    partition_execution_groups,
+    run_tool_groups,
+)
 from app.core.routing.slash_router import help_text, route_input
 from app.core.session import task_store
 from app.core.tools.clickhouse_tool import tool_db_query
@@ -76,7 +82,11 @@ TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "export_report",
-            "description": "将分析结果 JSON 导出为 Markdown 报告",
+            "description": (
+                "仅当用户明确要求「导出/下载/保存报告」时才调用。"
+                "普通查数、对比、解读、给建议都不要调用；界面已有「整理并下载报告」。"
+                "将分析结果 JSON 落盘为 Markdown 报告文件。"
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -99,6 +109,16 @@ Demo 数据业务日仅在 2026-05-04 ~ 2026-08-01。调用 get_fixed_analysis �
 - events: distinct_id, identity_login_id, event, dt, app_id, lib, path_id, lesson_id, register_channel, …
 渠道字段是 register_channel（不是 channel）。工具若返回 ok=false，请根据 error/hint 改写 SQL 再查，不要直接放弃。
 口径：DAU=屏浏览且登录 ID 非空；留存=SignUp cohort + 次日/七日屏浏览；漏斗=浏览路径→开课→完课→交练习。
+
+【并行工具 · PTC】
+彼此独立的查数（多个 get_fixed_analysis / db_query）请在同一轮回复里一次发起多个 tool_calls，系统会并行执行以降低延迟。
+有依赖的查询（后一条要用前一条结果）再分多轮。
+禁止把 export_report 与查数工具一起并行；默认不要调用 export_report。
+
+【不要自动导出】
+普通问答只查数 + 在回复里写结论/表格/建议即可。
+除非用户明确说「导出报告 / 下载报告 / 保存报告」，否则禁止调用 export_report。
+会话收尾落盘请用户用界面「整理并下载报告」，不要自行导出。
 
 【交付格式 · 仅本 Agent 路径】
 最终回复用 Markdown，三段式：
@@ -293,6 +313,101 @@ def _run_fixed_slash(task_id: str, routing: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _pretty_tool_result(result: str) -> str:
+    try:
+        return json.dumps(
+            json.loads(result),
+            ensure_ascii=False,
+            indent=2,
+            allow_nan=False,
+        )
+    except (TypeError, ValueError, json.JSONDecodeError):
+        try:
+            return json.dumps(
+                json.loads(
+                    result.replace("NaN", "null")
+                    .replace("-Infinity", "null")
+                    .replace("Infinity", "null")
+                ),
+                ensure_ascii=False,
+                indent=2,
+                allow_nan=False,
+            )
+        except Exception:
+            return result
+
+
+def _build_tool_trace(fn: str, args: dict[str, Any], result: str) -> dict[str, Any]:
+    tool_entry: dict[str, Any] = {
+        "tool": fn,
+        "args": args,
+        "result_preview": result[:800],
+    }
+    try:
+        parsed = json.loads(result)
+        if isinstance(parsed, dict):
+            tool_entry["ok"] = bool(parsed.get("ok"))
+            if "row_count" in parsed:
+                tool_entry["row_count"] = parsed.get("row_count")
+            elif isinstance(parsed.get("rows"), list):
+                tool_entry["row_count"] = len(parsed["rows"])
+            if (
+                parsed.get("ok")
+                and isinstance(parsed.get("rows"), list)
+                and parsed["rows"]
+            ):
+                tool_entry["table"] = {
+                    "analysis_key": parsed.get("analysis_key"),
+                    "name": parsed.get("name"),
+                    "row_count": parsed.get("row_count", len(parsed["rows"])),
+                    "columns": parsed.get("columns")
+                    or list(parsed["rows"][0].keys()),
+                    "rows": parsed["rows"][:20],
+                    "sql": parsed.get("sql"),
+                }
+    except (json.JSONDecodeError, TypeError, IndexError, KeyError):
+        pass
+    return tool_entry
+
+
+def _commit_tool_outcomes(
+    task_id: str,
+    messages: list[dict[str, Any]],
+    tool_traces: list[dict[str, Any]],
+    outcomes: list[ToolCallOutcome],
+    *,
+    round_i: int,
+) -> None:
+    """按模型顺序写入 Run Log / evidence / tool messages（与并行完成先后无关）。"""
+    for outcome in outcomes:
+        fn = outcome.name
+        args = outcome.args
+        result = outcome.result
+        task_store.append_progress(
+            task_id,
+            _tool_return_title(fn, args),
+            _observe_summary(result),
+            full=_pretty_tool_result(result),
+        )
+        tool_entry = _build_tool_trace(fn, args, result)
+        if outcome.parallel:
+            tool_entry["parallel"] = True
+            tool_entry["ptc_group"] = outcome.group_id
+        tool_traces.append(tool_entry)
+        save_evidence(
+            task_id,
+            f"tool_{round_i}_{outcome.index}_{fn}",
+            {"args": args, "result": result, "parallel": outcome.parallel},
+        )
+        messages.append(
+            {
+                "role": "tool",
+                "tool_call_id": outcome.call_id,
+                "content": result,
+            }
+        )
+
+
 def _sanitize_assistant_message(msg: dict[str, Any]) -> dict[str, Any]:
     out = dict(msg)
     if out.get("tool_calls") and out.get("content") is None:
@@ -313,10 +428,12 @@ def _http_error_detail(resp: httpx.Response) -> str:
 
 def _run_llm_react(task_id: str, query: str) -> dict[str, Any]:
     llm = settings.resolve_llm()
+    max_parallel = max(1, int(settings.max_parallel_tool_calls))
     task_store.append_progress(
         task_id,
         "启动 Agent",
-        f"provider={llm['provider']} · model={llm['model']}",
+        f"provider={llm['provider']} · model={llm['model']} · "
+        f"max_parallel_tools={max_parallel}",
     )
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -411,116 +528,47 @@ def _run_llm_react(task_id: str, query: str) -> dict[str, Any]:
                     out["data"] = table
                 return apply_delivery_soft_floor(out)
 
-            names = []
-            for call in tool_calls:
-                names.append((call.get("function") or {}).get("name") or "?")
+            pending = parse_tool_calls(tool_calls, round_i=round_i)
+            names = [c.name for c in pending]
+            groups = partition_execution_groups(pending)
+            will_parallel = max_parallel > 1 and any(
+                is_par and len(group) > 1 for is_par, group in groups
+            )
+            decision_note = "准备调用: " + ", ".join(names)
+            if will_parallel:
+                decision_note += f"（PTC 并行，上限 {max_parallel}）"
             task_store.append_progress(
                 task_id,
                 f"模型决策 · 第 {round_no} 轮",
-                "准备调用: " + ", ".join(names),
+                decision_note,
             )
 
+            # 先按模型顺序登记「调用」步骤，再并行执行，最后按序提交返回
+            for call in pending:
+                task_store.append_progress(
+                    task_id,
+                    _tool_step_title(call.name, call.args),
+                    _fmt_tool_args(call.name, call.args),
+                    full=(
+                        str(call.args.get("sql") or "")
+                        if call.name == "db_query"
+                        else None
+                    ),
+                )
+
             messages.append(msg)
-            for call in tool_calls:
-                fn = call["function"]["name"]
-                raw_args = call["function"].get("arguments") or "{}"
-                try:
-                    args = json.loads(raw_args) if isinstance(raw_args, str) else (raw_args or {})
-                except json.JSONDecodeError:
-                    args = {}
-                if not isinstance(args, dict):
-                    args = {}
-
-                task_store.append_progress(
-                    task_id,
-                    _tool_step_title(fn, args),
-                    _fmt_tool_args(fn, args),
-                    full=(str(args.get("sql") or "") if fn == "db_query" else None),
-                )
-
-                if fn not in TOOLS:
-                    result = json.dumps({"ok": False, "error": f"未知工具 {fn}"}, ensure_ascii=False)
-                else:
-                    try:
-                        result = TOOLS[fn](**args)
-                    except TypeError as e:
-                        result = json.dumps(
-                            {"ok": False, "error": f"工具参数错误: {e}", "args": args},
-                            ensure_ascii=False,
-                        )
-                    except Exception as e:
-                        result = json.dumps(
-                            {"ok": False, "error": f"工具执行异常: {e}"},
-                            ensure_ascii=False,
-                        )
-
-                try:
-                    pretty = json.dumps(
-                        json.loads(result),
-                        ensure_ascii=False,
-                        indent=2,
-                        allow_nan=False,
-                    )
-                except (TypeError, ValueError, json.JSONDecodeError):
-                    # 结果里可能含 NaN：先正规化再 dump，保证前端可 JSON.parse
-                    try:
-                        pretty = json.dumps(
-                            json.loads(
-                                result.replace("NaN", "null")
-                                .replace("-Infinity", "null")
-                                .replace("Infinity", "null")
-                            ),
-                            ensure_ascii=False,
-                            indent=2,
-                            allow_nan=False,
-                        )
-                    except Exception:
-                        pretty = result
-                task_store.append_progress(
-                    task_id,
-                    _tool_return_title(fn, args),
-                    _observe_summary(result),
-                    full=pretty,
-                )
-
-                tool_entry: dict[str, Any] = {
-                    "tool": fn,
-                    "args": args,
-                    "result_preview": result[:800],
-                }
-                try:
-                    parsed = json.loads(result)
-                    if isinstance(parsed, dict):
-                        tool_entry["ok"] = bool(parsed.get("ok"))
-                        if "row_count" in parsed:
-                            tool_entry["row_count"] = parsed.get("row_count")
-                        elif isinstance(parsed.get("rows"), list):
-                            tool_entry["row_count"] = len(parsed["rows"])
-                        if (
-                            parsed.get("ok")
-                            and isinstance(parsed.get("rows"), list)
-                            and parsed["rows"]
-                        ):
-                            tool_entry["table"] = {
-                                "analysis_key": parsed.get("analysis_key"),
-                                "name": parsed.get("name"),
-                                "row_count": parsed.get("row_count", len(parsed["rows"])),
-                                "columns": parsed.get("columns")
-                                or list(parsed["rows"][0].keys()),
-                                "rows": parsed["rows"][:20],
-                                "sql": parsed.get("sql"),
-                            }
-                except (json.JSONDecodeError, TypeError, IndexError, KeyError):
-                    pass
-                tool_traces.append(tool_entry)
-                save_evidence(task_id, f"tool_{round_i}_{fn}", {"args": args, "result": result})
-                messages.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": call.get("id") or f"call_{round_i}_{fn}",
-                        "content": result,
-                    }
-                )
+            outcomes = run_tool_groups(
+                pending,
+                TOOLS,
+                max_parallel=max_parallel,
+            )
+            _commit_tool_outcomes(
+                task_id,
+                messages,
+                tool_traces,
+                outcomes,
+                round_i=round_i,
+            )
 
     task_store.append_progress(task_id, "达到轮次上限", "已跑满 6 轮仍未收敛，请缩小问题或改用 slash")
     evidence = save_evidence(task_id, "llm_timeout", {"tool_traces": tool_traces})

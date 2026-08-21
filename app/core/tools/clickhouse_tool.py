@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import threading
 from typing import Any
 
 import clickhouse_connect
@@ -12,14 +13,15 @@ from app.config import settings
 from app.core.tools.sql_guard import guard_readonly_sql
 
 
-_client = None
+# 线程本地客户端：PTC 并行查数时避免共享同一 HTTP 会话
+_tls = threading.local()
 
 
 def get_client():
-    """Agent 查询客户端：强制 settings.readonly=1。"""
-    global _client
-    if _client is None:
-        _client = clickhouse_connect.get_client(
+    """Agent 查询客户端：强制 settings.readonly=1（每线程独立实例）。"""
+    client = getattr(_tls, "client", None)
+    if client is None:
+        client = clickhouse_connect.get_client(
             host=settings.ch_host,
             port=settings.ch_port,
             username=settings.ch_user,
@@ -27,12 +29,18 @@ def get_client():
             database=settings.ch_database,
             settings={"readonly": 1},
         )
-    return _client
+        _tls.client = client
+    return client
 
 
 def reset_client() -> None:
-    global _client
-    _client = None
+    """丢弃当前线程持有的客户端（测试 / 重载配置用）。"""
+    if getattr(_tls, "client", None) is not None:
+        try:
+            _tls.client.close()
+        except Exception:
+            pass
+    _tls.client = None
 
 
 def ping() -> bool:
