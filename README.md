@@ -84,13 +84,13 @@ flowchart LR
 
 <p align="center"><sub>演示（约 20s 加速回放）：点 <code>/dau</code> 出表 → 中文提问 → 结论与 Run Log</sub></p>
 
-### 1. Slash：稳定出表（不经 LLM）
+### 1. Slash：一键看板报告（不经 LLM）
 
-点 `/dau` 等快捷指令，走注册好的标准 SQL，右侧 Run Log 会标明 `fixed_slash`。
+点 `/dau`、`/today_dashboard` 等快捷指令，走注册好的标准 SQL，并自动画图、写出 Markdown 报告；右侧 Run Log 会标明 `fixed_slash`。
 
 ![Slash 固定分析 /dau](docs/screenshots/02-slash-dau.png)
 
-<p align="center"><sub>示例：`/dau` → 按日 DAU 表 + 路由与查询步骤</sub></p>
+<p align="center"><sub>示例：`/dau` → DAU 表 + 趋势图 + 报告产物（全程不调用 LLM）</sub></p>
 
 ### 2. 自然语言：结论 + 支撑数据 + 建议
 

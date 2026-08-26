@@ -1,17 +1,20 @@
-/** 与后端 slash_router.SLASH_FIXED_COMMANDS 对齐的可读标题 */
+/** 与后端固定看板指令对齐的可读标题 */
 const SLASH_TITLES: Record<string, string> = {
-  "/overview": "学习概览",
-  "/dau": "日活 DAU",
-  "/retention": "注册留存",
-  "/funnel": "学习漏斗",
-  "/channel": "渠道完课对比",
+  "/overview": "学习概览看板",
+  "/today_dashboard": "今日学习看板",
+  "/dau": "日活 DAU 趋势看板",
+  "/weekly_dau": "近7日 DAU 看板",
+  "/retention": "注册留存看板",
+  "/weekly_retention": "近7日注册留存看板",
+  "/funnel": "学习漏斗看板",
+  "/channel": "渠道完课对比看板",
   "/help": "指令帮助",
 };
 
 /** 与后端 SLASH_ALIASES 对齐 */
 const SLASH_ALIASES: Record<string, string> = {
-  "/today_dashboard": "/overview",
-  "/daily_dashboard": "/overview",
+  "/daily_dashboard": "/today_dashboard",
+  "/weekly_dashboard": "/weekly_dau",
   "/留存": "/retention",
   "/日活": "/dau",
   "/漏斗": "/funnel",

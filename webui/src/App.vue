@@ -217,6 +217,7 @@ async function pollRunningSessions() {
             evidencePath: formatted.evidencePath,
             evidenceFiles: formatted.evidenceFiles,
             reportPath: formatted.reportPath,
+            chartPath: formatted.chartPath,
             deliveryNotice: formatted.deliveryNotice,
             deliveryStatus: formatted.deliveryStatus,
           })

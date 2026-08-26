@@ -20,6 +20,7 @@ from app.core.agent.parallel_tools import (
 from app.core.routing.slash_router import help_text, route_input
 from app.core.session import task_store
 from app.core.tools.clickhouse_tool import tool_db_query
+from app.core.agent.fixed_dashboard import run_fixed_dashboard
 from app.core.tools.fixed_analysis import tool_get_fixed_analysis
 from app.core.tools.report_tool import tool_export_analysis_report
 
@@ -263,54 +264,32 @@ def _format_answer(payload: dict[str, Any]) -> str:
 
 
 def _run_fixed_slash(task_id: str, routing: dict[str, Any]) -> dict[str, Any]:
-    """slash 固定分析：注册 SQL 直跑，不经过 LLM。"""
-    key = routing["analysis_key"]
-    cmd = routing.get("resolved_command")
-    task_store.append_progress(
-        task_id,
-        "固定分析 slash",
-        f"{cmd} → {key}（跳过 LLM，直接跑 ClickHouse SQL）",
-    )
-    raw = tool_get_fixed_analysis(key)
-    payload = json.loads(raw)
+    """slash 固定看板：注册 SQL + 画图 + 报告，不经过 LLM。"""
+    cmd = str(routing.get("resolved_command") or "")
+
+    def _progress(step: str, detail: str = "") -> None:
+        task_store.append_progress(task_id, step, detail)
+
+    result = run_fixed_dashboard(cmd, task_id, progress_cb=_progress)
     evidence = save_evidence(
         task_id,
-        "fixed_analysis",
-        {"routing": routing, "result": payload},
+        "fixed_dashboard",
+        {"routing": routing, "result": result.get("data") or result},
     )
-    task_store.append_progress(
-        task_id,
-        "查询完成",
-        _observe_summary(raw) if payload.get("ok") else _clip(str(payload.get("error")), 320),
-    )
-
-    if not payload.get("ok"):
-        return {
-            "answer": payload.get("error") or "固定分析失败",
-            "mode": "fixed_slash",
-            "routing": routing,
-            "evidence_path": evidence,
-            "data": payload,
-        }
-
-    task_store.append_progress(task_id, "导出报告", "写入 Markdown 报告文件")
-    report_raw = tool_export_analysis_report(raw, title=payload.get("name") or key)
-    report = json.loads(report_raw)
-    return {
-        "answer": _format_answer(payload),
+    out = {
+        "answer": result.get("answer") or "固定看板失败",
         "mode": "fixed_slash",
-        "routing": routing,
+        "routing": result.get("routing") or routing,
         "evidence_path": evidence,
-        "report": report,
-        "data": {
-            "analysis_key": payload.get("analysis_key"),
-            "name": payload.get("name"),
-            "row_count": payload.get("row_count"),
-            "columns": payload.get("columns"),
-            "rows": payload.get("rows"),
-            "sql": payload.get("sql"),
-        },
+        "data": result.get("data") or {},
     }
+    if result.get("report"):
+        out["report"] = result["report"]
+    if result.get("chart_path"):
+        out["chart_path"] = result["chart_path"]
+    if not result.get("ok"):
+        out["error"] = result.get("error") or out["answer"]
+    return out
 
 
 def _pretty_tool_result(result: str) -> str:

@@ -16,28 +16,63 @@ function inlinePlain(s: string): string {
     .replace(/`([^`]+)`/g, "<code>$1</code>");
 }
 
-function safeHref(href: string): string | null {
-  const h = href.trim();
+function safeScratchpadHref(href: string): string | null {
+  const h = href.trim().replace(/\\/g, "/");
   if (/^\/download\//i.test(h)) return h;
   if (/^https?:\/\//i.test(h)) return h;
+  // Markdown 里常见的 scratchpad 相对路径 → 下载接口
+  let p = h;
+  if (p.startsWith("./")) p = p.slice(2);
+  if (p.startsWith(".scratchpad/")) p = p.slice(".scratchpad/".length);
+  else if (p.startsWith("scratchpad/")) p = p.slice("scratchpad/".length);
+  if (/^(reports|evidence)\//i.test(p) && !p.includes("..")) {
+    return `/download/${p}`;
+  }
   return null;
 }
 
+function safeHref(href: string): string | null {
+  return safeScratchpadHref(href);
+}
+
 function inline(s: string): string {
-  const re = /\[([^\]]+)\]\(([^)]+)\)/g;
+  // 图片优先：![alt](url)
+  const imgRe = /!\[([^\]]*)\]\(([^)]+)\)/g;
+  const linkRe = /\[([^\]]+)\]\(([^)]+)\)/g;
   let out = "";
   let last = 0;
   let m: RegExpExecArray | null;
-  while ((m = re.exec(s))) {
-    out += inlinePlain(s.slice(last, m.index));
-    const label = m[1];
-    const href = safeHref(m[2]);
-    if (href) {
-      out += `<a class="md-link" href="${esc(href)}" target="_blank" rel="noopener noreferrer">${esc(label)}</a>`;
-    } else {
-      out += inlinePlain(m[0]);
-    }
-    last = m.index + m[0].length;
+  const tokens: Array<{ start: number; end: number; html: string }> = [];
+
+  while ((m = imgRe.exec(s))) {
+    const href = safeScratchpadHref(m[2]);
+    if (!href) continue;
+    tokens.push({
+      start: m.index,
+      end: m.index + m[0].length,
+      html: `<img class="md-img" src="${esc(href)}" alt="${esc(m[1] || "图表")}" loading="lazy" />`,
+    });
+  }
+  while ((m = linkRe.exec(s))) {
+    // 跳过已被图片语法吞掉的区间（![...](...) 内层也会匹配 linkRe）
+    const overlaps = tokens.some((t) => m!.index >= t.start && m!.index < t.end);
+    if (overlaps) continue;
+    if (s[m.index - 1] === "!") continue;
+    const href = safeScratchpadHref(m[2]);
+    tokens.push({
+      start: m.index,
+      end: m.index + m[0].length,
+      html: href
+        ? `<a class="md-link" href="${esc(href)}" target="_blank" rel="noopener noreferrer">${esc(m[1])}</a>`
+        : inlinePlain(m[0]),
+    });
+  }
+  tokens.sort((a, b) => a.start - b.start);
+  for (const t of tokens) {
+    if (t.start < last) continue;
+    out += inlinePlain(s.slice(last, t.start));
+    out += t.html;
+    last = t.end;
   }
   out += inlinePlain(s.slice(last));
   return out;

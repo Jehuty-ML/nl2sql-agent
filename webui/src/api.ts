@@ -20,6 +20,8 @@ export interface ChatMessage {
   evidenceFiles?: string[];
   /** 服务端写出的单次分析报告 md */
   reportPath?: string;
+  /** 看板图表 png（slash 一键报告） */
+  chartPath?: string;
   /** 交付薄地板提示（无硬栏） */
   deliveryNotice?: string;
   deliveryStatus?: string;
@@ -63,11 +65,13 @@ export interface TaskPayload {
     evidence_path?: string;
     evidence_files?: string[];
     report?: { path?: string; ok?: boolean };
+    chart_path?: string;
     data?: {
       rows?: Record<string, unknown>[];
       columns?: string[];
       name?: string;
       analysis_key?: string;
+      chart_path?: string;
     };
     mode?: string;
     error?: string;
@@ -83,6 +87,7 @@ export interface FormattedAssistant {
   evidencePath?: string;
   evidenceFiles?: string[];
   reportPath?: string;
+  chartPath?: string;
   deliveryNotice?: string;
   deliveryStatus?: string;
 }
@@ -239,6 +244,11 @@ export function formatResult(result: TaskPayload["final_result"]): FormattedAssi
   const evidenceFiles = (result.evidence_files || []).filter(Boolean);
   const evidencePath = result.evidence_path || evidenceFiles[evidenceFiles.length - 1];
   const reportPath = result.report?.path;
+  const chartPath =
+    result.chart_path ||
+    (result.data && typeof result.data === "object"
+      ? (result.data as { chart_path?: string }).chart_path
+      : undefined);
 
   // slash：用结构化表；Agent：表格写在 Markdown「支撑数据」里，避免双表。
   const answer = result.answer || "";
@@ -252,6 +262,7 @@ export function formatResult(result: TaskPayload["final_result"]): FormattedAssi
     evidencePath,
     evidenceFiles: evidenceFiles.length ? evidenceFiles : evidencePath ? [evidencePath] : undefined,
     reportPath,
+    chartPath,
     deliveryNotice: result.delivery_notice,
     deliveryStatus: result.status,
   };
@@ -271,7 +282,7 @@ export function createSession(title = "新分析"): Session {
           "这是通用 NL2SQL / 问数 Agent（slash + ReAct + 只读查数）。\n" +
           "当前预置的 LumenLearn 只是临时虚构场景与样本库，方便开箱试用；换成你自己的连接、表结构与 FIXED_QUERIES 即可做真实业务分析。\n\n" +
           "【两条通道】\n" +
-          "• slash（/dau 等，示例指令）→ 固定 SQL，只出数据表，不经 LLM\n" +
+          "• slash（/dau、/today_dashboard 等）→ 固定看板：查数 + 画图 + 报告，不经 LLM\n" +
           "• 中文提问 → Agent，产出「结论 + 支撑数据 + 运营建议」（需配置 LLM）",
         createdAt: now,
       },
@@ -294,6 +305,7 @@ export function newMessage(
       | "evidencePath"
       | "evidenceFiles"
       | "reportPath"
+      | "chartPath"
       | "deliveryNotice"
       | "deliveryStatus"
     >

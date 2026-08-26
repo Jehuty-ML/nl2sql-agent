@@ -90,7 +90,7 @@ function uniqueEvidence(m: ChatMessage): string[] {
         </div>
       </div>
       <div
-        v-if="m.role === 'assistant' && (m.evidenceList.length || m.reportPath)"
+        v-if="m.role === 'assistant' && (m.evidenceList.length || m.reportPath || m.chartPath)"
         class="artifacts"
       >
         <span class="artifacts-label">产物</span>
@@ -103,6 +103,15 @@ function uniqueEvidence(m: ChatMessage): string[] {
           @click="downloadScratchpadPath(ev)"
         >
           下载证据 · {{ scratchpadBasename(ev) }}
+        </button>
+        <button
+          v-if="m.chartPath"
+          type="button"
+          class="art-btn art-btn-chart"
+          :title="m.chartPath"
+          @click="downloadScratchpadPath(m.chartPath!)"
+        >
+          下载图表 · {{ scratchpadBasename(m.chartPath) }}
         </button>
         <button
           v-if="m.reportPath"
@@ -230,6 +239,17 @@ pre {
   color: var(--oak);
 }
 
+.rich :deep(.md-img) {
+  display: block;
+  max-width: min(100%, 720px);
+  width: 100%;
+  height: auto;
+  margin: 10px 0 4px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: #fff;
+}
+
 .rich :deep(code) {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 0.82em;
@@ -348,6 +368,12 @@ pre {
   background: #eef3ea;
   border-color: #c5d0bc;
   color: var(--oak);
+}
+
+.art-btn-chart {
+  background: #eef2f8;
+  border-color: #c5d0e0;
+  color: #2f4f7a;
 }
 
 .art-btn:hover {
