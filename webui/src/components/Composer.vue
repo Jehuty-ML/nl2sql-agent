@@ -6,7 +6,7 @@ const emit = defineEmits<{ send: [query: string] }>();
 
 const text = ref("");
 const hints = [
-  { label: "/dau", q: "/dau", tip: "日活（不经 LLM）" },
+  { label: "/dau", q: "/dau", tip: "日活" },
   { label: "/funnel", q: "/funnel", tip: "学习漏斗" },
   { label: "/retention", q: "/retention", tip: "注册留存" },
   { label: "/channel", q: "/channel", tip: "渠道完课" },

@@ -102,10 +102,16 @@ async function main() {
   await page.screenshot({ path: path.join(OUT, "01-overview.png"), fullPage: false });
   console.log("saved 01-overview.png");
 
-  // 2) slash /dau
+  // 2) slash /dau（固定看板：表 + 图 + 报告产物）
   await page.locator(".hints button", { hasText: "/dau" }).click();
   await waitAssistantDone(page);
-  await page.waitForTimeout(600);
+  // 等图表渲染进消息（有则更好；无图也不阻塞截图）
+  await page
+    .waitForSelector(".msg.assistant .md-img, .msg.assistant .artifacts .art-btn-chart", {
+      timeout: 30000,
+    })
+    .catch(() => {});
+  await page.waitForTimeout(800);
   await page.screenshot({ path: path.join(OUT, "02-slash-dau.png"), fullPage: false });
   console.log("saved 02-slash-dau.png");
 
