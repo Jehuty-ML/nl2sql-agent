@@ -13,6 +13,8 @@ def test_assess_ok_with_rows():
         {
             "tool": "db_query",
             "ok": True,
+            "grain": "aggregate",
+            "truncated": False,
             "row_count": 3,
             "table": {"rows": [{"a": 1}], "row_count": 3},
         }
@@ -20,7 +22,46 @@ def test_assess_ok_with_rows():
     a = assess_query_evidence(traces)
     assert a["has_ok_query"] is True
     assert a["has_nonempty_rows"] is True
+    assert a["has_complete_evidence"] is True
     assert a["reason"] == "none"
+
+
+def test_assess_incomplete_evidence():
+    traces = [
+        {
+            "tool": "db_query",
+            "ok": True,
+            "grain": "detail",
+            "truncated": True,
+            "row_count": 500,
+            "table": {"rows": [{"a": 1}], "row_count": 500},
+        }
+    ]
+    a = assess_query_evidence(traces)
+    assert a["has_ok_query"] is True
+    assert a["reason"] == "incomplete_evidence"
+
+
+def test_soft_floor_incomplete():
+    original = "### 核心结论"
+    out = apply_delivery_soft_floor(
+        {
+            "mode": "agent_loop",
+            "answer": original,
+            "tool_traces": [
+                {
+                    "tool": "db_query",
+                    "ok": True,
+                    "grain": "detail",
+                    "truncated": True,
+                    "table": {"rows": [{"a": 1}]},
+                }
+            ],
+        }
+    )
+    assert out["status"] == "partial"
+    assert out["delivery_gate"] == "incomplete_evidence"
+    assert original in out["answer"]
 
 
 def test_assess_ok_empty_rows():
@@ -79,6 +120,8 @@ def test_soft_floor_passthrough_with_evidence():
                 {
                     "tool": "db_query",
                     "ok": True,
+                    "grain": "aggregate",
+                    "truncated": False,
                     "row_count": 2,
                     "table": {"rows": [{"x": 1}, {"x": 2}], "row_count": 2},
                 }
