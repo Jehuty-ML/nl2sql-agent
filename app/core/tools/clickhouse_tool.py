@@ -10,6 +10,8 @@ from typing import Any
 import clickhouse_connect
 
 from app.config import settings
+from app.core.tools.result_shape import enrich_query_result
+from app.core.tools.sql_classifier import classify_sql
 from app.core.tools.sql_guard import guard_readonly_sql
 
 
@@ -66,18 +68,21 @@ def run_query(sql: str, limit: int = 500) -> dict[str, Any]:
         client = get_client()
         # 单次查询再带 readonly，防止客户端缓存 settings 被改写
         result = client.query(sql_strip, settings={"readonly": 1})
-        rows = [dict(zip(result.column_names, row)) for row in result.result_rows[:limit]]
+        raw_rows = result.result_rows
+        rows = [dict(zip(result.column_names, row)) for row in raw_rows[:limit]]
         safe_rows = []
         for r in rows:
             safe_rows.append({k: _jsonable(v) for k, v in r.items()})
-        return {
+        grain = classify_sql(sql_strip)
+        payload: dict[str, Any] = {
             "ok": True,
             "sql": sql_strip,
             "columns": list(result.column_names),
-            "row_count": len(safe_rows),
             "rows": safe_rows,
             "readonly": True,
         }
+        enrich_query_result(payload, grain=grain, limit_applied=limit)
+        return payload
     except Exception as e:
         err = str(e)
         hint = ""

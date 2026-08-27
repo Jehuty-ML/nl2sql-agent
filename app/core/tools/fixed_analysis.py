@@ -8,6 +8,7 @@ from typing import Any
 
 from app.bi.fixed_queries import FIXED_QUERIES, render_sql
 from app.core.tools.clickhouse_tool import run_query
+from app.core.tools.result_shape import GRAIN_FIXED, enrich_query_result
 
 
 def default_date_range(days: int = 30) -> tuple[str, str]:
@@ -38,6 +39,7 @@ def run_fixed_analysis(
         "end_date": end_date,
         **result,
     }
+    enrich_query_result(out, grain=GRAIN_FIXED)
     # 防止模型瞎编日期导致空结果后空转多轮
     if out.get("ok") and int(out.get("row_count") or 0) == 0:
         demo_start, demo_end = default_date_range()
