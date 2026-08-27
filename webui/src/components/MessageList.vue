@@ -70,7 +70,7 @@ function uniqueEvidence(m: ChatMessage): string[] {
       </div>
       <div v-if="m.role === 'assistant'" class="rich" v-html="m.html" />
       <pre v-else>{{ m.content }}</pre>
-      <div v-if="m.table?.rows?.length" class="table-wrap">
+      <div v-if="m.table?.rows?.length && !(m.dataTables?.length)" class="table-wrap">
         <div class="table-caption">支撑数据（{{ m.table.rows.length }} 行）</div>
         <div class="table-scroll">
           <table>
@@ -89,6 +89,31 @@ function uniqueEvidence(m: ChatMessage): string[] {
           </table>
         </div>
       </div>
+      <template v-if="m.dataTables?.length">
+        <div
+          v-for="(entry, ti) in m.dataTables"
+          :key="ti"
+          class="table-wrap"
+        >
+          <div class="table-caption">{{ entry.label }}（{{ entry.table.rows.length }} 行）</div>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th v-for="col in entry.table.columns" :key="col">{{ columnLabel(col) }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(row, i) in entry.table.rows" :key="i">
+                  <td v-for="col in entry.table.columns" :key="col">
+                    {{ formatCellValue(col, row[col]) }}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </template>
       <div
         v-if="m.role === 'assistant' && (m.evidenceList.length || m.reportPath || m.chartPath)"
         class="artifacts"

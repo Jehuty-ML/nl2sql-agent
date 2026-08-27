@@ -156,6 +156,17 @@ flowchart LR
 
 问数台还可把**整段会话**整理为 Markdown，并与 `.scratchpad/evidence/` 下原始证据一并打成 zip（见上文「报告与证据下载」）。
 
+### 证据投影与交付门闩（Spec Phase 1–2）
+
+| 机制 | 说明 |
+|------|------|
+| **Audit vs Model-view** | Run Log / evidence 保留完整工具 JSON；进 LLM 的 `role:tool` 为投影（完备包或样本包） |
+| **grain / truncated** | `fixed` / `aggregate` 且未截断 → 完备证据；明细或 LIMIT 截断 → 样本包 |
+| **incomplete_evidence** | 仅有截断/样本查数就交卷 → `status=partial` + 系统提示 |
+| **系统贴表** | 完备查数结果渲染为 `data_tables`（PTC 多表）；模型 prose 少重复 Markdown 表 |
+
+详见 [docs/spec.md](docs/spec.md) 与 [docs/implementation-plan.md](docs/implementation-plan.md)。
+
 ### 只读安全（三道防线）
 
 | 层 | 做法 |

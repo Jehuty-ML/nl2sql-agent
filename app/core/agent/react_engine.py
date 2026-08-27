@@ -11,12 +11,16 @@ from app.bi.fixed_queries import FIXED_QUERIES
 from app.config import settings
 from app.core.agent.evidence import attach_evidence_index, save_evidence
 from app.core.agent.delivery_floor import apply_delivery_soft_floor
+from app.core.agent.plan_mode import append_plan_progress, extract_plan, plan_mode_prompt_addon
 from app.core.agent.parallel_tools import (
     ToolCallOutcome,
     parse_tool_calls,
     partition_execution_groups,
     run_tool_groups,
 )
+from app.core.agent.table_selection import select_display_tables, select_primary_table
+from app.core.tools.pipeline import get_tool_pipeline
+from app.core.tools.result_shape import trace_from_payload
 from app.core.routing.slash_router import help_text, route_input
 from app.core.session import task_store
 from app.core.tools.clickhouse_tool import tool_db_query
@@ -34,6 +38,7 @@ TOOLS: dict[str, Callable[..., str]] = {
         payload_json, title
     ),
 }
+get_tool_pipeline().set_tools(TOOLS)
 
 TOOL_SCHEMAS = [
     {
@@ -122,12 +127,19 @@ Demo 数据业务日仅在 2026-05-04 ~ 2026-08-01。调用 get_fixed_analysis �
 会话收尾落盘请用户用界面「整理并下载报告」，不要自行导出。
 
 【交付格式 · 仅本 Agent 路径】
-最终回复用 Markdown，三段式：
-1. `### …核心结论：` — 关键指标与判断；数字必须来自工具；不足则写 `【数据限制】`。
-2. `### 支撑数据` — Markdown 表格 + 必要时一两句口径。
+最终回复用 Markdown：
+1. `### …核心结论：` — 趋势与判断；精确 KPI 优先写「见系统表格」；数字必须来自工具；不足则写 `【数据限制】`。
+2. `### 支撑数据` — **勿粘贴大段 Markdown 表格**（系统会从查数结果自动展示表格）；可写一两句口径说明。
 3. `### 运营策略建议` — 仅在有数据特征可绑定时写；禁止空话；证据不足则明确写不足以给建议并说明缺什么。
 （注意：用户若走 /dau 等 slash，系统不会进本 Agent，也不会生成建议——那是固定 SQL 报表通道。）
 """
+
+
+def _system_prompt() -> str:
+    prompt = SYSTEM_PROMPT
+    if settings.enable_plan_mode:
+        prompt += plan_mode_prompt_addon()
+    return prompt
 
 
 def _clip(text: str, n: int = 280) -> str:
@@ -224,7 +236,7 @@ def _observe_summary(result: str) -> str:
         return "观察失败: " + _clip(str(err), 320)
     rows = payload.get("rows")
     if isinstance(rows, list):
-        n = payload.get("row_count", len(rows))
+        n = payload.get("returned_rows", payload.get("row_count", len(rows)))
         name = payload.get("name") or payload.get("analysis_key") or ""
         head = f"观察成功: {n} 行"
         if name:
@@ -316,37 +328,25 @@ def _pretty_tool_result(result: str) -> str:
             return result
 
 
-def _build_tool_trace(fn: str, args: dict[str, Any], result: str) -> dict[str, Any]:
-    tool_entry: dict[str, Any] = {
-        "tool": fn,
-        "args": args,
-        "result_preview": result[:800],
-    }
+def _build_tool_trace(
+    fn: str,
+    args: dict[str, Any],
+    result: str,
+    *,
+    projection: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     try:
         parsed = json.loads(result)
-        if isinstance(parsed, dict):
-            tool_entry["ok"] = bool(parsed.get("ok"))
-            if "row_count" in parsed:
-                tool_entry["row_count"] = parsed.get("row_count")
-            elif isinstance(parsed.get("rows"), list):
-                tool_entry["row_count"] = len(parsed["rows"])
-            if (
-                parsed.get("ok")
-                and isinstance(parsed.get("rows"), list)
-                and parsed["rows"]
-            ):
-                tool_entry["table"] = {
-                    "analysis_key": parsed.get("analysis_key"),
-                    "name": parsed.get("name"),
-                    "row_count": parsed.get("row_count", len(parsed["rows"])),
-                    "columns": parsed.get("columns")
-                    or list(parsed["rows"][0].keys()),
-                    "rows": parsed["rows"][:20],
-                    "sql": parsed.get("sql"),
-                }
-    except (json.JSONDecodeError, TypeError, IndexError, KeyError):
-        pass
-    return tool_entry
+    except (json.JSONDecodeError, TypeError):
+        return {
+            "tool": fn,
+            "args": args,
+            "result_preview": result[:800],
+            "projection": projection or {},
+        }
+    if isinstance(parsed, dict):
+        return trace_from_payload(fn, args, parsed, projection=projection)
+    return {"tool": fn, "args": args, "result_preview": result[:800]}
 
 
 def _commit_tool_outcomes(
@@ -368,7 +368,7 @@ def _commit_tool_outcomes(
             _observe_summary(result),
             full=_pretty_tool_result(result),
         )
-        tool_entry = _build_tool_trace(fn, args, result)
+        tool_entry = _build_tool_trace(fn, args, result, projection=outcome.projection)
         if outcome.parallel:
             tool_entry["parallel"] = True
             tool_entry["ptc_group"] = outcome.group_id
@@ -376,13 +376,19 @@ def _commit_tool_outcomes(
         save_evidence(
             task_id,
             f"tool_{round_i}_{outcome.index}_{fn}",
-            {"args": args, "result": result, "parallel": outcome.parallel},
+            {
+                "args": args,
+                "result": result,
+                "model_content": outcome.model_content,
+                "parallel": outcome.parallel,
+                "projection": outcome.projection,
+            },
         )
         messages.append(
             {
                 "role": "tool",
                 "tool_call_id": outcome.call_id,
-                "content": result,
+                "content": outcome.model_content,
             }
         )
 
@@ -405,6 +411,30 @@ def _http_error_detail(resp: httpx.Response) -> str:
         return (resp.text or "")[:800]
 
 
+def _finalize_agent_result(
+    answer: str,
+    tool_traces: list[dict[str, Any]],
+    llm: dict[str, Any],
+    evidence_path: str,
+) -> dict[str, Any]:
+    data_tables = select_display_tables(tool_traces)
+    out: dict[str, Any] = {
+        "answer": answer,
+        "mode": "agent_loop",
+        "provider": llm["provider"],
+        "model": llm["model"],
+        "evidence_path": evidence_path,
+        "tool_traces": tool_traces,
+        "render_mode": "system_tables" if data_tables else "legacy_markdown_tables",
+    }
+    if data_tables:
+        out["data_tables"] = data_tables
+    primary = select_primary_table(tool_traces)
+    if primary:
+        out["data"] = primary
+    return apply_delivery_soft_floor(out)
+
+
 def _run_llm_react(task_id: str, query: str) -> dict[str, Any]:
     llm = settings.resolve_llm()
     max_parallel = max(1, int(settings.max_parallel_tool_calls))
@@ -415,7 +445,7 @@ def _run_llm_react(task_id: str, query: str) -> dict[str, Any]:
         f"max_parallel_tools={max_parallel}",
     )
     messages: list[dict[str, Any]] = [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": _system_prompt()},
         {"role": "user", "content": query},
     ]
     tool_traces: list[dict[str, Any]] = []
@@ -465,6 +495,9 @@ def _run_llm_react(task_id: str, query: str) -> dict[str, Any]:
                     full=think,
                     match_step=think_step,
                 )
+                plan = extract_plan(think)
+                if plan:
+                    append_plan_progress(task_store, task_id, plan)
             else:
                 task_store.update_latest_progress(
                     task_id,
@@ -494,18 +527,7 @@ def _run_llm_react(task_id: str, query: str) -> dict[str, Any]:
                         "model": llm["model"],
                     },
                 )
-                out: dict[str, Any] = {
-                    "answer": answer,
-                    "mode": "agent_loop",
-                    "provider": llm["provider"],
-                    "model": llm["model"],
-                    "evidence_path": evidence,
-                    "tool_traces": tool_traces,
-                }
-                table = _extract_last_table(tool_traces)
-                if table:
-                    out["data"] = table
-                return apply_delivery_soft_floor(out)
+                return _finalize_agent_result(answer, tool_traces, llm, evidence)
 
             pending = parse_tool_calls(tool_calls, round_i=round_i)
             names = [c.name for c in pending]
@@ -551,15 +573,11 @@ def _run_llm_react(task_id: str, query: str) -> dict[str, Any]:
 
     task_store.append_progress(task_id, "达到轮次上限", "已跑满 6 轮仍未收敛，请缩小问题或改用 slash")
     evidence = save_evidence(task_id, "llm_timeout", {"tool_traces": tool_traces})
-    return apply_delivery_soft_floor(
-        {
-            "answer": "工具循环超过轮次上限，请缩小问题或改用 /dau /funnel 等固定指令。",
-            "mode": "agent_loop",
-            "provider": llm["provider"],
-            "model": llm["model"],
-            "evidence_path": evidence,
-            "tool_traces": tool_traces,
-        }
+    return _finalize_agent_result(
+        "工具循环超过轮次上限，请缩小问题或改用 /dau /funnel 等固定指令。",
+        tool_traces,
+        llm,
+        evidence,
     )
 
 

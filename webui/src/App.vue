@@ -220,6 +220,7 @@ async function pollRunningSessions() {
             chartPath: formatted.chartPath,
             deliveryNotice: formatted.deliveryNotice,
             deliveryStatus: formatted.deliveryStatus,
+            dataTables: formatted.dataTables,
           })
         );
         s.deliveredTaskId = taskId;
