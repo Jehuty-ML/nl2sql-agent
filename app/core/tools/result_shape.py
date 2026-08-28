@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.core.json_safe import json_safe
+
 GRAIN_FIXED = "fixed"
 GRAIN_AGGREGATE = "aggregate"
 GRAIN_DETAIL = "detail"
@@ -28,6 +30,12 @@ def enrich_query_result(
     """为成功/失败的查数结果补齐 spec 字段（就地修改并返回）。"""
     if not isinstance(payload, dict):
         return payload
+
+    # 先 scrub NaN，避免进入 traces / HTTP
+    cleaned = json_safe(payload)
+    if cleaned is not payload and isinstance(cleaned, dict):
+        payload.clear()
+        payload.update(cleaned)
 
     if grain:
         payload["grain"] = grain

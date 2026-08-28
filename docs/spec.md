@@ -355,6 +355,8 @@ grep 返回 10 万行 → pruner 保留头 4096 + 尾 1024 字符 → 模型继�
 
 ### 5.2 tool_trace（Run Log / delivery）
 
+`tool_traces` 挂在 task / `final_result` 上，**故意不存完整 `result`**（避免 task JSON 膨胀）。全文在 evidence；traces 只留摘要字段。
+
 ```json
 {
   "tool": "db_query",
@@ -363,8 +365,11 @@ grep 返回 10 万行 → pruner 保留头 4096 + 尾 1024 字符 → 模型继�
   "ptc_group": 0,
   "grain": "aggregate",
   "truncated": false,
+  "returned_rows": 5,
+  "result_preview": "{... 最多约 800 字符的 JSON 摘要 ...}",
   "projection": {
     "kind": "complete",
+    "incomplete": false,
     "model_chars": 1200
   },
   "table": {
@@ -377,6 +382,16 @@ grep 返回 10 万行 → pruner 保留头 4096 + 尾 1024 字符 → 模型继�
 ```
 
 `projection.kind`: `complete` | `sample` | `pruned_chars`
+
+| 字段 | 在哪 | 含义 |
+|------|------|------|
+| `result_preview` | `tool_traces` | 审计结果 JSON 的短摘要（约 800 字） |
+| `table` | `tool_traces` | UI / 系统贴表用（最多约 20 行） |
+| **`result`** | **evidence** `*_tool_*.json` | **投影前**完整工具返回 |
+| **`model_content`** | **evidence** 同文件 | **投影后**进 LLM 的内容；`model_chars = len(model_content)` |
+| `projection` | traces + evidence | 投影元数据 |
+
+Run Log「查看全文」读的是 progress 步骤的 `full`（通常等于审计全文），不是 traces 里的 `result` 字段。
 
 ### 5.3 Agent 终态（HTTP / task result）
 
