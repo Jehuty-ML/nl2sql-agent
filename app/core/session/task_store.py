@@ -9,6 +9,8 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from app.core.json_safe import json_safe
+
 _ROOT = Path(__file__).resolve().parents[3]
 _TASK_DIR = _ROOT / ".scratchpad" / "tasks"
 _lock = threading.Lock()
@@ -23,10 +25,15 @@ def _ensure_dir() -> None:
     _TASK_DIR.mkdir(parents=True, exist_ok=True)
 
 
+def _dumps(obj: Any) -> str:
+    """落盘 / 深拷贝：禁止 NaN，否则 HTTP JSONResponse 会 500。"""
+    return json.dumps(json_safe(obj), ensure_ascii=False, default=str, allow_nan=False)
+
+
 def _persist(task: dict[str, Any]) -> None:
     _ensure_dir()
     path = _TASK_DIR / f"{task['task_id']}.json"
-    path.write_text(json.dumps(task, ensure_ascii=False, default=str), encoding="utf-8")
+    path.write_text(_dumps(task), encoding="utf-8")
 
 
 def _load_from_disk(task_id: str) -> dict[str, Any] | None:
@@ -34,7 +41,14 @@ def _load_from_disk(task_id: str) -> dict[str, Any] | None:
     if not path.is_file():
         return None
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        # 旧文件可能含字面 NaN；先替换再 parse
+        raw = path.read_text(encoding="utf-8")
+        raw = (
+            raw.replace(": NaN", ": null")
+            .replace(": -Infinity", ": null")
+            .replace(": Infinity", ": null")
+        )
+        return json_safe(json.loads(raw))
     except Exception:
         return None
 
@@ -138,7 +152,7 @@ def finish_task(task_id: str, final_result: dict[str, Any], ok: bool = True) -> 
             if not t:
                 return
             _TASKS[task_id] = t
-        t["final_result"] = final_result
+        t["final_result"] = json_safe(final_result)
         t["status"] = "succeeded" if ok else "failed"
         t["updated_at"] = time.time()
         _persist(t)
@@ -148,9 +162,9 @@ def get_task(task_id: str) -> dict[str, Any] | None:
     with _lock:
         t = _TASKS.get(task_id)
         if t:
-            return json.loads(json.dumps(t, ensure_ascii=False, default=str))
+            return json.loads(_dumps(t))
         disk = _load_from_disk(task_id)
         if disk:
             _TASKS[task_id] = disk
-            return json.loads(json.dumps(disk, ensure_ascii=False, default=str))
+            return json.loads(_dumps(disk))
         return None

@@ -62,6 +62,25 @@ class Settings(BaseSettings):
     # 同一步内并行工具上限；1 = 强制串行（便于对照 / 压测降载）
     max_parallel_tool_calls: int = 4
 
+    # Phase 1：工具结果投影
+    model_row_cap: int = 50
+    model_sample_rows: int = 5
+    model_json_char_cap: int = 8192
+
+    # Phase 5：SQL 形态
+    reject_detail_sql: bool = False
+    detail_sample_only: bool = True
+
+    # Phase 6
+    enable_plan_mode: bool = False
+
+    # Phase 7
+    enable_numeric_audit: bool = False
+
+    # Phase 8
+    spill_threshold_bytes: int = 262144
+    query_timeout_seconds: float = 60.0
+
     dashscope_api_key: str = ""
     dashscope_base_url: str = ""
     dashscope_model: str = ""

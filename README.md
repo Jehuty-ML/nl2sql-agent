@@ -8,9 +8,9 @@
 [![ClickHouse](https://img.shields.io/badge/DB-ClickHouse-yellow.svg)](https://clickhouse.com/)
 [![Slash](https://img.shields.io/badge/Slash-no%20LLM%20required-lightgrey.svg)](#双通道交付)
 
-slash 固定分析 + ReAct 工具循环（**PTC 并行工具调用**）→ 只读查 ClickHouse → 表格、结论，以及可回看的 Run Log / 证据链。
+slash 固定分析 + ReAct 工具循环（**PTC 并行工具调用**）→ 只读查 ClickHouse → **系统贴表**、结论，以及可回看的 Run Log / 证据链。
 
-复杂或多需求提问时，Agent 可在同一步并行发起多条只读查询（如同时查 DAU、漏斗、渠道），总耗时接近最慢的那条，而不是各条串行相加，从而**显著加快**多指标对比与综合诊断。
+和「只会写一段 Markdown 表」的问数 Agent 相比，这里更强调**诚实交付**：完备查数结果由界面贴表（不是模型手抄数字）；证据不完整时标 `partial`，而不是假装答全了。PTC 负责多指标同轮并行，让复杂提问更快。
 
 本仓库是通用问数引擎（路由、Agent、只读防护、问数台）。**LumenLearn（流明学堂）** 只是附带的虚构演示场景与合成数据，方便 clone 后立刻跑通；换成自有库与 `FIXED_QUERIES` 即可接真实业务。
 
@@ -19,6 +19,18 @@ slash 固定分析 + ReAct 工具循环（**PTC 并行工具调用**）→ 只�
 ![问数台主界面](docs/screenshots/01-overview.png)
 
 <p align="center"><sub>左会话 · 中对话 · 右 Run Log · 底部 slash 快捷指令</sub></p>
+
+### 核心优势（相对「散文问数」）
+
+| 优势 | 你会看到什么 |
+|------|----------------|
+| **系统贴表** | 完备工具结果渲染为 `data_tables`（PTC 可多表并列）；数字来自查数，不靠模型在 Markdown 里手写表 |
+| **诚实交付** | 仅有截断/样本证据就交卷 → `status=partial` + 黄标提示；有完备证据才正常 `success` |
+| **Audit vs Model** | Run Log / evidence 保留完整工具 JSON；进 LLM 的是投影（完备包或样本包），上下文可控、原始可追 |
+| **可回追** | 气泡「产物」下载 evidence；右侧 Run Log 逐步看思考 / SQL / 观察 |
+| **PTC 加速** | 同轮并行多条只读查询，总耗时接近最慢的一条，多指标诊断明显更快 |
+
+> **不承诺零幻觉。** 门闩与贴表降低「空口无凭」和「假完整」，结论措辞仍可能偏差——重要决策请对照原始表与 evidence。详见 [docs/spec.md](docs/spec.md)。
 
 ### 试问示例（复制即用）
 
@@ -41,7 +53,7 @@ slash 固定分析 + ReAct 工具循环（**PTC 并行工具调用**）→ 只�
 | 想接自有指标的数据/BI 团队 | 换连接、元数据与 `FIXED_QUERIES`，留下引擎与问数台 |
 | 想演示 NL2SQL / Agent 问数 | clone 后起示例 ClickHouse，立刻点 `/dau` 或中文提问 |
 | 要一次问多个指标、嫌串行太慢 | 自然语言走 **PTC**：同轮并行查数，复杂/多需求查询明显更快 |
-| 关心安全与可审计 | 只读三道防线 + 异常交付提示 + Run Log / 证据落盘，数字可回追 |
+| 关心「敢看、敢追」、怕假完整 | **系统贴表** + 证据不完整则 `partial` + Run Log / evidence，而不是只信模型散文 |
 
 ```text
 你的问题
@@ -70,7 +82,7 @@ flowchart LR
   AG --> OUT
   AG --> LOG[Run Log 证据链]
   FX --> LOG
-  AG --> FL[交付薄地板<br/>异常提示 / partial]
+  AG --> FL[交付门闩<br/>完备贴表 / incomplete→partial]
   FL --> OUT
 ```
 
@@ -92,13 +104,19 @@ flowchart LR
 
 <p align="center"><sub>示例：`/dau` → DAU 表 + 趋势图 + 报告产物（全程不调用 LLM）</sub></p>
 
-### 2. 自然语言：结论 + 支撑数据 + 建议
+### 2. 自然语言：系统贴表 + 结论 + 建议
 
-中文提问进入 Agent；模型可调用固定分析 / 动态 SQL。一次问多个独立指标时走 **PTC**（同轮并行工具调用），缩短复杂/多需求查询的等待时间。界面顶栏可「整理并下载报告」；Agent 默认不自动导出报告。
+中文提问进入 Agent；模型可调用固定分析 / 动态 SQL。一次问多个独立指标时走 **PTC**（同轮并行工具调用），缩短等待；完备查数结果以**系统贴表**展示（可多表），再配结论与建议。界面顶栏可「整理并下载报告」；Agent 默认不自动导出报告。
 
-![自然语言 Agent 对话](docs/screenshots/03-agent-nl.png)
+![自然语言 Agent：PTC 多表 + Run Log](docs/screenshots/03-agent-nl.png)
 
-<p align="center"><sub>示例：「最近一周日活…给两条运营建议」→ 表 + 建议；右侧可见工具调用与 SQL</sub></p>
+<p align="center"><sub>示例：一次问概览 / 日活 / 留存 / 漏斗 → PTC 并行取数 → 中栏多张系统表 + 产物；右侧 Run Log 逐步可回看</sub></p>
+
+<p align="center">
+  <img src="docs/screenshots/06-system-tables.png" alt="系统贴表：学习概览与日活 DAU" width="640" />
+</p>
+
+<p align="center"><sub>完备证据渲染为界面表格（标题含行数）；数字来自工具结果，而不是模型在 Markdown 里手抄一张表。</sub></p>
 
 ### 3. Run Log：证据链可回看
 
@@ -130,7 +148,7 @@ flowchart LR
 | 输入 | 路径 | LLM | 交付形态 |
 |------|------|-----|----------|
 | `/dau` `/funnel` `/retention` `/overview` `/channel` `/help`（示例） | 固定 SQL | 否 | 标题 + 元信息 + **数据表**（并可落盘报告 / 证据） |
-| 自然语言 | ReAct Agent + **PTC** | 是 | **结论** + 支撑数据 + **运营建议**；多指标同轮并行查数，复杂查询更快 |
+| 自然语言 | ReAct Agent + **PTC** | 是 | **系统贴表** + **结论** + **运营建议**；多指标同轮并行；证据不完整则 `partial` |
 
 只有显式 `/` 会在进 Agent 前硬拦截；句子里的业务词不会抢跑固定分析。快捷按钮发的是 slash，不是中文短句。
 
@@ -155,6 +173,20 @@ flowchart LR
 | `export_report` | 仅当用户明确要求导出时调用；日常请用顶栏「整理并下载报告」 |
 
 问数台还可把**整段会话**整理为 Markdown，并与 `.scratchpad/evidence/` 下原始证据一并打成 zip（见上文「报告与证据下载」）。
+
+### 证据投影与交付门闩
+
+把「敢不敢信这张表」从 prompt 说教，改成**可检查的状态**：
+
+| 机制 | 说明 |
+|------|------|
+| **Audit vs Model-view** | Run Log / evidence 保留完整工具 JSON；进 LLM 的 `role:tool` 为投影（完备包或样本包） |
+| **grain / truncated** | `fixed` / `aggregate` 且未截断 → 完备证据；明细或 LIMIT 截断 → 样本包 |
+| **incomplete_evidence** | 仅有截断/样本查数就交卷 → `status=partial` + 系统黄标；混有完备证据时可正常 `success` |
+| **系统贴表** | 完备查数 → `data_tables` / `render_mode=system_tables`（PTC 多表）；减少模型 prose 里重复 Markdown 表 |
+| **软数字对账** | 交卷后对照工具结果，对未出现在证据中的 KPI 数字打 warn（不硬拦） |
+
+详见 [docs/spec.md](docs/spec.md) 与 [docs/implementation-plan.md](docs/implementation-plan.md)。
 
 ### 只读安全（三道防线）
 
@@ -353,7 +385,7 @@ scripts/               # 演示造数与冒烟
 
 ## 免责声明
 
-Agent（尤其自然语言路径）生成的结论、解读与运营建议**可能存在幻觉、口径偏差或过度外推**。本项目用异常提示与证据链降低「空口无凭」的风险，但**不替代**人对数字与业务口径的核对。请以工具返回、Run Log 与固定分析报表为准；重要决策前务必多渠道核实，勿仅依赖模型叙述自动执行。
+Agent（尤其自然语言路径）生成的结论、解读与运营建议**可能存在幻觉、口径偏差或过度外推**。系统贴表、交付门闩与证据链降低「空口无凭 / 假完整」的风险，但**不承诺消灭幻觉**，也**不替代**人对数字与业务口径的核对。请以工具返回、中栏系统表、Run Log 与固定分析报表为准；重要决策前务必多渠道核实，勿仅依赖模型叙述自动执行。
 
 ## 协议
 

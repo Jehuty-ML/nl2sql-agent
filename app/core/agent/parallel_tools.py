@@ -41,6 +41,8 @@ class ToolCallOutcome:
     name: str
     args: dict[str, Any]
     result: str
+    model_content: str
+    projection: dict[str, Any]
     parallel: bool
     group_id: int
 
@@ -118,26 +120,31 @@ def parse_tool_calls(
 def _invoke_one(
     call: PendingToolCall,
     tools: dict[str, Callable[..., str]],
-) -> str:
-    import json
+) -> ToolCallOutcome:
+    from app.core.tools.pipeline import get_tool_pipeline
 
-    if call.name not in tools:
-        return json.dumps(
-            {"ok": False, "error": f"未知工具 {call.name}"},
-            ensure_ascii=False,
-        )
-    try:
-        return tools[call.name](**call.args)
-    except TypeError as e:
-        return json.dumps(
-            {"ok": False, "error": f"工具参数错误: {e}", "args": call.args},
-            ensure_ascii=False,
-        )
-    except Exception as e:
-        return json.dumps(
-            {"ok": False, "error": f"工具执行异常: {e}"},
-            ensure_ascii=False,
-        )
+    pipeline = get_tool_pipeline()
+    pipeline.set_tools(tools)
+
+    pre = pipeline.pre_execute(call.name, call.args)
+    if pre.blocked:
+        full = pre.result_json
+        _, model_str, meta = pipeline.post_execute(call.name, call.args, full)
+    else:
+        full = pipeline.execute(call.name, call.args)
+        full, model_str, meta = pipeline.post_execute(call.name, call.args, full)
+
+    return ToolCallOutcome(
+        index=call.index,
+        call_id=call.call_id,
+        name=call.name,
+        args=call.args,
+        result=full,
+        model_content=model_str,
+        projection=meta,
+        parallel=False,
+        group_id=0,
+    )
 
 
 def run_tool_groups(
@@ -156,18 +163,17 @@ def run_tool_groups(
     cap = max(1, int(max_parallel))
     force_serial = cap <= 1
     groups = partition_execution_groups(calls)
-    # index -> result
-    results: dict[int, str] = {}
-    meta: dict[int, tuple[bool, int]] = {}  # parallel?, group_id
+    outcomes_by_index: dict[int, ToolCallOutcome] = {}
 
     for group_id, (is_parallel, group) in enumerate(groups):
         run_parallel = is_parallel and not force_serial and len(group) > 1
-        for c in group:
-            meta[c.index] = (run_parallel, group_id)
 
         if not run_parallel:
             for c in group:
-                results[c.index] = _invoke_one(c, tools)
+                oc = _invoke_one(c, tools)
+                oc.parallel = False
+                oc.group_id = group_id
+                outcomes_by_index[c.index] = oc
             continue
 
         workers = min(cap, len(group))
@@ -176,27 +182,34 @@ def run_tool_groups(
             for fut in as_completed(futures):
                 c = futures[fut]
                 try:
-                    results[c.index] = fut.result()
+                    oc = fut.result()
                 except Exception as e:
                     import json
 
-                    results[c.index] = json.dumps(
+                    full = json.dumps(
                         {"ok": False, "error": f"工具执行异常: {e}"},
                         ensure_ascii=False,
                     )
+                    from app.core.tools.pipeline import get_tool_pipeline
+
+                    pipe = get_tool_pipeline()
+                    _, model_str, meta = pipe.post_execute(c.name, c.args, full)
+                    oc = ToolCallOutcome(
+                        index=c.index,
+                        call_id=c.call_id,
+                        name=c.name,
+                        args=c.args,
+                        result=full,
+                        model_content=model_str,
+                        projection=meta,
+                        parallel=True,
+                        group_id=group_id,
+                    )
+                oc.parallel = True
+                oc.group_id = group_id
+                outcomes_by_index[c.index] = oc
 
     outcomes: list[ToolCallOutcome] = []
     for c in calls:
-        parallel, group_id = meta[c.index]
-        outcomes.append(
-            ToolCallOutcome(
-                index=c.index,
-                call_id=c.call_id,
-                name=c.name,
-                args=c.args,
-                result=results[c.index],
-                parallel=parallel,
-                group_id=group_id,
-            )
-        )
+        outcomes.append(outcomes_by_index[c.index])
     return outcomes

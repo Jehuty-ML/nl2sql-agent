@@ -3,6 +3,14 @@ export type ChatRole = "user" | "assistant" | "system";
 export interface ResultTable {
   columns: string[];
   rows: Record<string, unknown>[];
+  name?: string;
+  analysis_key?: string;
+}
+
+export interface DataTableEntry {
+  label: string;
+  table: ResultTable;
+  tool_index?: number;
 }
 
 export interface ChatMessage {
@@ -12,6 +20,8 @@ export interface ChatMessage {
   createdAt: number;
   /** 结构化结果表（固定分析 / 查询摘要） */
   table?: ResultTable;
+  /** Agent 多表（PTC / 完备查数） */
+  dataTables?: DataTableEntry[];
   /** 产出该条回复的后端 task */
   taskId?: string;
   /** 主证据路径（.scratchpad/evidence/...） */
@@ -73,6 +83,8 @@ export interface TaskPayload {
       analysis_key?: string;
       chart_path?: string;
     };
+    data_tables?: DataTableEntry[];
+    render_mode?: string;
     mode?: string;
     error?: string;
     status?: string;
@@ -84,6 +96,7 @@ export interface TaskPayload {
 export interface FormattedAssistant {
   content: string;
   table?: ResultTable;
+  dataTables?: DataTableEntry[];
   evidencePath?: string;
   evidenceFiles?: string[];
   reportPath?: string;
@@ -250,15 +263,43 @@ export function formatResult(result: TaskPayload["final_result"]): FormattedAssi
       ? (result.data as { chart_path?: string }).chart_path
       : undefined);
 
-  // slash：用结构化表；Agent：表格写在 Markdown「支撑数据」里，避免双表。
+  // slash：结构化表；Agent：system_tables 时用 data / data_tables，否则看 Markdown 表
   const answer = result.answer || "";
+  const dataTables = (result.data_tables || [])
+    .map((entry) => {
+      const t = buildResultTable(entry.table);
+      if (!t) return null;
+      return { label: entry.label || t.name || "数据", table: t, tool_index: entry.tool_index };
+    })
+    .filter(Boolean) as DataTableEntry[];
+
   const wantTable =
     mode === "fixed_slash" ||
-    (mode === "agent_loop" && !/\|\s*---/.test(answer));
+    (mode === "agent_loop" &&
+      (result.render_mode === "system_tables" || dataTables.length > 0
+        ? true
+        : !/\|\s*---/.test(answer)));
+
+  const primaryTable = buildResultTable(result.data);
+
+  if (dataTables.length >= 1) {
+    return {
+      content: lines.join("\n").trim(),
+      table: undefined,
+      dataTables,
+      evidencePath,
+      evidenceFiles: evidenceFiles.length ? evidenceFiles : evidencePath ? [evidencePath] : undefined,
+      reportPath,
+      chartPath,
+      deliveryNotice: result.delivery_notice,
+      deliveryStatus: result.status,
+    };
+  }
 
   return {
     content: lines.join("\n").trim(),
-    table: wantTable ? buildResultTable(result.data) : undefined,
+    table: wantTable ? primaryTable : undefined,
+    dataTables: undefined,
     evidencePath,
     evidenceFiles: evidenceFiles.length ? evidenceFiles : evidencePath ? [evidencePath] : undefined,
     reportPath,
@@ -308,6 +349,7 @@ export function newMessage(
       | "chartPath"
       | "deliveryNotice"
       | "deliveryStatus"
+      | "dataTables"
     >
   >
 ): ChatMessage {
