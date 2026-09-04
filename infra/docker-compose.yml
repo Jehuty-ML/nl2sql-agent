@@ -12,8 +12,8 @@ services:
     image: clickhouse/clickhouse-server:24.8
     container_name: lumenlearn-clickhouse
     ports:
-      - "8123:8123"   # HTTP
-      - "9000:9000"   # Native
+      - "8123:8123"   # HTTP（Agent / 造数脚本用这个）
+      - "19000:9000"  # Native（本机 9000 常被 Hyper-V 保留，改映射到 19000）
     environment:
       CLICKHOUSE_DB: lumenlearn
       CLICKHOUSE_USER: lumen
@@ -21,7 +21,8 @@ services:
       CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
     volumes:
       - lumenlearn_ch_data:/var/lib/clickhouse
-      - ./clickhouse/users.d:/etc/clickhouse-server/users.d:ro
+      # 只挂只读账号配置文件，避免整目录 :ro 导致 entrypoint 无法写 default-user.xml
+      - ./clickhouse/users.d/readonly.xml:/etc/clickhouse-server/users.d/readonly.xml:ro
     ulimits:
       nofile:
         soft: 262144
