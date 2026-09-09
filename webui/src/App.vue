@@ -264,7 +264,7 @@ async function ask(query: string) {
   persist();
 
   try {
-    const { task_id } = await startChat(q);
+    const { task_id } = await startChat(q, sessionId);
     const started = sessionById(sessionId);
     if (!started) return;
     started.taskId = task_id;
@@ -317,6 +317,7 @@ onUnmounted(() => {
           CK {{ health?.clickhouse || "…" }}
         </span>
         <span>LLM {{ health?.llm_enabled ? "on" : "off" }}</span>
+        <span>Evo {{ health?.evolution_enabled ? "on" : "off" }}</span>
         <span v-if="health?.llm_provider">{{ health.llm_provider }}/{{ health.llm_model }}</span>
       </div>
     </header>

@@ -8,17 +8,15 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.bi.fixed_dashboard import (
-    FIXED_DASHBOARD_COMMANDS,
-    SLASH_ALIASES,
-)
+from app.core.evolution.registry import get_dashboard_commands, get_slash_aliases
 
 
 def normalize_slash(text: str) -> str:
     token = (text or "").strip().split()[0].lower() if (text or "").strip() else ""
     if not token.startswith("/"):
         return ""
-    return SLASH_ALIASES.get(token, token)
+    aliases = get_slash_aliases()
+    return aliases.get(token, token)
 
 
 def route_input(text: str) -> dict[str, Any]:
@@ -33,6 +31,7 @@ def route_input(text: str) -> dict[str, Any]:
 
     if stripped.startswith("/"):
         cmd = normalize_slash(stripped)
+        commands = get_dashboard_commands()
         if cmd == "/help":
             return {
                 "execution_path": "slash_help",
@@ -40,8 +39,8 @@ def route_input(text: str) -> dict[str, Any]:
                 "reason_codes": ["slash_help"],
                 "human_reason": "帮助指令",
             }
-        if cmd in FIXED_DASHBOARD_COMMANDS:
-            meta = FIXED_DASHBOARD_COMMANDS[cmd]
+        if cmd in commands:
+            meta = commands[cmd]
             return {
                 "execution_path": "fixed_slash",
                 "resolved_command": cmd,
@@ -71,7 +70,7 @@ def help_text() -> str:
         "固定看板指令（**不经过大模型**，查数 + 画图 + 报告）：",
         "",
     ]
-    for cmd, meta in FIXED_DASHBOARD_COMMANDS.items():
+    for cmd, meta in get_dashboard_commands().items():
         lines.append(f"- `{cmd}`：{meta['title']}")
     lines.append("- `/help`：查看本帮助")
     lines.append("")

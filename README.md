@@ -307,7 +307,9 @@ python .\scripts\generate_demo_data.py --seed 42 --to-clickhouse --truncate
 ### 3. 启动后端
 
 ```powershell
-uvicorn app.server.app:app --host 0.0.0.0 --port 6010 --reload
+uvicorn app.server.app:app --host 0.0.0.0 --port 6010
+# Demo / 联调请不要加 --reload：热重载会杀掉正在跑的后台 Agent 线程，任务会一直显示 running。
+# 开发改代码时再用：uvicorn ... --reload --reload-exclude ".scratchpad/*" --reload-exclude "tests/*"
 ```
 
 打开：<http://127.0.0.1:6010/>
@@ -318,7 +320,7 @@ uvicorn app.server.app:app --host 0.0.0.0 --port 6010 --reload
 cd webui
 npm install
 npm run build
-# 或 npm run dev → http://127.0.0.1:5173
+# 或 npm run dev → http://127.0.0.1:3000
 ```
 
 ### 5. 冒烟
@@ -347,8 +349,48 @@ python scripts\smoke_basic.py
 | `LLM_PROVIDER` | `dashscope` / `deepseek` / `ark` / `ollama` / `openai` |
 | `LLM_API_*` | 可选总覆盖 |
 | `MAX_PARALLEL_TOOL_CALLS` | PTC 同轮并行工具上限（默认 `4`；设为 `1` 强制串行） |
+| `ENABLE_EVOLUTION` | 自进化总开关（默认 `false`；`true` 打开记忆 / 信号收获 / skill 提案） |
+| `EVOLUTION_PATTERN_THRESHOLD` | 同一 SQL 指纹成功次数达到阈值后生成提案（默认 `3`） |
+| `ACTIVE_STRATEGY_ID` | 策略包 id（默认 `v1_baseline`） |
 
 无 API Key 时 slash 仍可用；自然语言需配置 LLM。
+
+### 自进化（可选）
+
+默认**关闭**。打开后走 **信号 → 改进 → 注入 → 再用门闩打分** 的外环（**不改模型权重**）。
+
+```mermaid
+flowchart LR
+  A[问数] --> B[delivery_floor]
+  B --> C[harvest]
+  C --> D[tip升降权_策略补丁_skill提案]
+  D --> E[下次注入_RunLog可见]
+  E --> A
+```
+
+| 你会看到 | 含义 |
+|----------|------|
+| Run Log「进化记忆已注入」 | 本轮 system 已带入教训/上一轮摘要（无固定分析偏好） |
+| `negative_tips.json` 的 `bad_col_*` | **高价值 L1**：动态 SQL 列名踩坑已入库 |
+| `negative_tips.json` 的 `weight` 变化 | 上一轮注入后，本轮门闩结果在给 tip 打分 |
+| `strategy_patches.json` | 行为类失败≥3 次后的 L2 硬约束（强制查数等；列名 tip 不升 L2） |
+| `proposed_skills.json`（`eval_status=llm_ok`） | L3：LLM 判定可固化后的 pending 提案；需 `promote` 才出现 slash |
+| `promote` 后多出 slash | L3 固化新固定分析 |
+
+```powershell
+# .env
+ENABLE_EVOLUTION=true
+```
+
+重启后端 → `/health` 中 `evolution_enabled: true`。
+
+| 操作 | 方式 |
+|------|------|
+| 查看状态 | `GET /api/v1/evolution/status` 或 `/health` |
+| 列出提案 | `GET /api/v1/evolution/proposals` · `python scripts/evolution_cli.py list` |
+| 晋升 skill | `POST /api/v1/evolution/promote` · `python scripts/evolution_cli.py promote <id>` |
+
+设计、闭环图与演示步骤见 [docs/self-evolution.md](docs/self-evolution.md)。
 
 ---
 
@@ -356,11 +398,14 @@ python scripts\smoke_basic.py
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| `GET` | `/health` | 健康检查 |
-| `POST` | `/api/v1/chat` | 对话（`sync` 可同步/异步） |
+| `GET` | `/health` | 健康检查（含 `evolution_enabled`） |
+| `POST` | `/api/v1/chat` | 对话（可带 `session_id`；`sync` 可同步/异步） |
 | `GET` | `/api/v1/task/{task_id}` | 任务进度 |
 | `GET` | `/download/{path}` | 下载 `.scratchpad/` 内文件（证据 / 单次报告等；禁止目录穿越） |
 | `POST` | `/api/v1/reports/bundle` | 会话报告打包：`report.md` + `evidence/*.json`（MD 内相对链接可跳转） |
+| `GET` | `/api/v1/evolution/status` | 自进化开关状态 |
+| `GET` | `/api/v1/evolution/proposals` | 列出 skill 提案（需开启进化） |
+| `POST` | `/api/v1/evolution/promote` | 验收并 promote 提案（需开启进化） |
 
 ---
 
@@ -368,13 +413,15 @@ python scripts\smoke_basic.py
 
 ```
 docs/screenshots/      # README 界面截图
+docs/self-evolution.md # 自进化一期（记忆/策略/skill 提案）
 infra/                 # 演示用 ClickHouse（可替换/删除）
 app/bi/                # 指标与固定 SQL（按业务替换）
 app/core/agent/        # ReAct · delivery_floor（异常提示）
+app/core/evolution/    # 自进化：信号收获 / 记忆 / 策略 / skill 提案
 app/core/routing/      # slash
 app/core/tools/        # sql_guard / db_query / …
 app/core/session/      # 任务进度落盘（Run Log 数据源）
-.scratchpad/           # 运行时：tasks / evidence / reports（本地，默认不入库）
+.scratchpad/           # 运行时：tasks / evidence / reports / evolution（本地，默认不入库）
 webui/                 # 问数台
 scripts/               # 演示造数与冒烟
 ```

@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-QUERY_TOOLS = frozenset({"get_fixed_analysis", "db_query"})
+from app.core.tools.query_tools import is_query_tool
 
 NOTICE_NUMERIC = (
     "【系统提示】结论中部分具体数字未在查数结果中出现，请对照 Run Log / 上表核对；"
@@ -76,7 +76,7 @@ def build_evidence_numbers(traces: list[dict[str, Any]]) -> tuple[set[str], bool
     canonical: set[str] = set()
     has_rate = False
     for t in traces:
-        if str(t.get("tool") or "") not in QUERY_TOOLS or not t.get("ok"):
+        if not is_query_tool(str(t.get("tool") or "")) or not t.get("ok"):
             continue
         for v, col in _iter_cell_values(t):
             if _RATE_COL.search(col):

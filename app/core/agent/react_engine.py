@@ -7,7 +7,6 @@ from typing import Any, Callable
 
 import httpx
 
-from app.bi.fixed_queries import FIXED_QUERIES
 from app.config import settings
 from app.core.agent.evidence import attach_evidence_index, save_evidence
 from app.core.agent.delivery_floor import apply_delivery_soft_floor
@@ -19,6 +18,9 @@ from app.core.agent.parallel_tools import (
     run_tool_groups,
 )
 from app.core.agent.table_selection import select_display_tables, select_primary_table
+from app.core.evolution.controller import schedule_harvest
+from app.core.evolution.registry import fixed_query_keys
+from app.core.evolution.strategy import apply_strategy_knobs, load_strategy
 from app.core.tools.pipeline import get_tool_pipeline
 from app.core.tools.result_shape import trace_from_payload
 from app.core.routing.slash_router import help_text, route_input
@@ -40,106 +42,113 @@ TOOLS: dict[str, Callable[..., str]] = {
 }
 get_tool_pipeline().set_tools(TOOLS)
 
-TOOL_SCHEMAS = [
-    {
-        "type": "function",
-        "function": {
-            "name": "get_fixed_analysis",
-            "description": (
-                "执行已注册的标准固定分析。仅当用户问题明确对应这些分析时使用。"
-                f"可选 key: {list(FIXED_QUERIES.keys())}。"
-                "默认不要传 start_date/end_date（省略则使用 Demo 窗口 2026-07~2026-08）；"
-                "仅当用户明确指定日期时才传入，且必须落在 2026-05-04~2026-08-01。"
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "key": {"type": "string"},
-                    "start_date": {"type": "string"},
-                    "end_date": {"type": "string"},
+
+def _tool_schemas() -> list[dict[str, Any]]:
+    keys = fixed_query_keys()
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": "get_fixed_analysis",
+                "description": (
+                    "执行已注册的标准固定分析。仅当用户问题明确对应这些分析时使用。"
+                    f"可选 key: {keys}。"
+                    "默认不要传 start_date/end_date（省略则使用 Demo 窗口 2026-07~2026-08）；"
+                    "仅当用户明确指定日期时才传入，且必须落在 2026-05-04~2026-08-01。"
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "key": {"type": "string"},
+                        "start_date": {"type": "string"},
+                        "end_date": {"type": "string"},
+                    },
+                    "required": ["key"],
                 },
-                "required": ["key"],
             },
         },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "db_query",
-            "description": (
-                "对 ClickHouse lumenlearn 库执行【只读】SELECT / WITH 查询。"
-                "禁止 INSERT/UPDATE/DELETE/DDL/多语句；工具层与数据库只读账号会拒绝写操作。"
-                "users 渠道列名为 register_channel（不是 channel）；"
-                "标准口径优先与 fixed analysis 一致。"
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "sql": {
-                        "type": "string",
-                        "description": "只读 SQL：必须以 SELECT 或 WITH 开头的单条查询。",
-                    }
+        {
+            "type": "function",
+            "function": {
+                "name": "db_query",
+                "description": (
+                    "对 ClickHouse lumenlearn 库执行【只读】SELECT / WITH 查询。"
+                    "禁止 INSERT/UPDATE/DELETE/DDL/多语句；工具层与数据库只读账号会拒绝写操作。"
+                    "users 渠道列名为 register_channel（不是 channel）；"
+                    "标准口径优先与 fixed analysis 一致。"
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "sql": {
+                            "type": "string",
+                            "description": "只读 SQL：必须以 SELECT 或 WITH 开头的单条查询。",
+                        }
+                    },
+                    "required": ["sql"],
                 },
-                "required": ["sql"],
             },
         },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "export_report",
-            "description": (
-                "仅当用户明确要求「导出/下载/保存报告」时才调用。"
-                "普通查数、对比、解读、给建议都不要调用；界面已有「整理并下载报告」。"
-                "将分析结果 JSON 落盘为 Markdown 报告文件。"
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "payload_json": {"type": "string"},
-                    "title": {"type": "string"},
+        {
+            "type": "function",
+            "function": {
+                "name": "export_report",
+                "description": (
+                    "仅当用户明确要求「导出/下载/保存报告」时才调用。"
+                    "普通查数、对比、解读、给建议都不要调用；界面已有「整理并下载报告」。"
+                    "将分析结果 JSON 落盘为 Markdown 报告文件。"
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "payload_json": {"type": "string"},
+                        "title": {"type": "string"},
+                    },
+                    "required": ["payload_json"],
                 },
-                "required": ["payload_json"],
             },
         },
-    },
-]
-
-SYSTEM_PROMPT = """你是 LumenLearn 学习社区的数据分析智能体（ReAct 工具循环）。
-只能使用工具【只读】查询 ClickHouse（events/users），禁止编造数字。
-【只读硬约束】db_query 只能发 SELECT / WITH … SELECT；禁止 INSERT/UPDATE/DELETE/DROP/TRUNCATE/ALTER/CREATE 等任何写库或 DDL；禁止一次提交多条语句。写操作会被工具与数据库拒绝。
-标准指标优先调用 get_fixed_analysis；需要下钻时再用 db_query。
-Demo 数据业务日仅在 2026-05-04 ~ 2026-08-01。调用 get_fixed_analysis 时**默认不要传 start_date/end_date**（省略即用该窗口）；禁止臆造 2024/2025 日期。
-表字段（勿臆造列名）：
-- users: distinct_id, login_id, register_dt, register_channel, app_id, last_active_dt
-- events: distinct_id, identity_login_id, event, dt, app_id, lib, path_id, lesson_id, register_channel, …
-渠道字段是 register_channel（不是 channel）。工具若返回 ok=false，请根据 error/hint 改写 SQL 再查，不要直接放弃。
-口径：DAU=屏浏览且登录 ID 非空；留存=SignUp cohort + 次日/七日屏浏览；漏斗=浏览路径→开课→完课→交练习。
-
-【并行工具 · PTC】
-彼此独立的查数（多个 get_fixed_analysis / db_query）请在同一轮回复里一次发起多个 tool_calls，系统会并行执行以降低延迟。
-有依赖的查询（后一条要用前一条结果）再分多轮。
-禁止把 export_report 与查数工具一起并行；默认不要调用 export_report。
-
-【不要自动导出】
-普通问答只查数 + 在回复里写结论/表格/建议即可。
-除非用户明确说「导出报告 / 下载报告 / 保存报告」，否则禁止调用 export_report。
-会话收尾落盘请用户用界面「整理并下载报告」，不要自行导出。
-
-【交付格式 · 仅本 Agent 路径】
-最终回复用 Markdown：
-1. `### …核心结论：` — 趋势与判断；精确 KPI 优先写「见系统表格」；数字必须来自工具；不足则写 `【数据限制】`。
-2. `### 支撑数据` — **勿粘贴大段 Markdown 表格**（系统会从查数结果自动展示表格）；可写一两句口径说明。
-3. `### 运营策略建议` — 仅在有数据特征可绑定时写；禁止空话；证据不足则明确写不足以给建议并说明缺什么。
-（注意：用户若走 /dau 等 slash，系统不会进本 Agent，也不会生成建议——那是固定 SQL 报表通道。）
-"""
+    ]
 
 
-def _system_prompt() -> str:
-    prompt = SYSTEM_PROMPT
-    if settings.enable_plan_mode:
+# 兼容旧测试 / 冒烟：模块加载时快照；运行时以 _tool_schemas() 为准
+TOOL_SCHEMAS = _tool_schemas()
+
+
+def _system_prompt(*, session_id: str = "", query: str = "") -> tuple[str, dict]:
+    strategy = load_strategy()
+    knobs = apply_strategy_knobs(strategy)
+    prompt = str(strategy.get("prompt") or "")
+    if knobs.get("enable_plan_mode") or settings.enable_plan_mode:
         prompt += plan_mode_prompt_addon()
-    return prompt
+    # 待处理策略补丁：累计门闩失败后自动加硬约束（可回滚：删 strategy_patches.json）
+    from app.core.evolution.feedback import list_pending_patches
+
+    patches = list_pending_patches() if settings.enable_evolution else []
+    patch_ids: list[str] = []
+    for p in patches:
+        addon = str(p.get("suggested_prompt_addon") or "")
+        if addon:
+            prompt += addon
+            patch_ids.append(str(p.get("id") or ""))
+    from app.core.evolution.memory import prepare_memory_injection
+
+    inj = prepare_memory_injection(session_id, query)
+    block = str(inj.get("block") or "")
+    if block:
+        prompt = prompt.rstrip() + "\n\n" + block
+    meta = {
+        "strategy_id": strategy.get("id"),
+        "memory_lines": inj.get("lines") or [],
+        "tip_classes": inj.get("tip_classes") or [],
+        "patch_ids": patch_ids,
+    }
+    return prompt, meta
+
+
+def _system_prompt_text(*, session_id: str = "", query: str = "") -> str:
+    text, _ = _system_prompt(session_id=session_id, query=query)
+    return text
 
 
 def _clip(text: str, n: int = 280) -> str:
@@ -174,20 +183,75 @@ def _tool_return_title(fn: str, args: dict[str, Any]) -> str:
 def _llm_chat_payload(
     llm: dict[str, Any],
     messages: list[dict[str, Any]],
+    *,
+    with_reasoning: bool | None = None,
 ) -> dict[str, Any]:
-    """构造 chat/completions 请求体；按 Provider 尽量打开 reasoning，便于 Run Log 展示思考。"""
+    """构造 chat/completions 请求体。
+
+    reasoning 默认可开（利于工具规划与 Run Log 思考全文）；调用方可在超时后以
+    with_reasoning=False 降级重试，而不是默认关掉 Ark reasoning。
+    """
     payload: dict[str, Any] = {
         "model": llm["model"],
         "messages": messages,
-        "tools": TOOL_SCHEMAS,
+        "tools": _tool_schemas(),
         "tool_choice": "auto",
     }
+    use_reasoning = (
+        settings.llm_enable_reasoning if with_reasoning is None else bool(with_reasoning)
+    )
+    if not use_reasoning:
+        return payload
     provider = str(llm.get("provider") or "").lower()
     if provider in ("ark", "dashscope"):
         payload["enable_reasoning"] = True
     elif provider == "deepseek":
         payload["thinking"] = {"type": "enabled"}
     return payload
+
+
+def _post_chat_completions(
+    client: httpx.Client,
+    llm: dict[str, Any],
+    messages: list[dict[str, Any]],
+    *,
+    task_id: str,
+    round_no: int,
+) -> httpx.Response:
+    """先带 reasoning 请求；4xx / 读超时后再降级无 reasoning 重试一次。"""
+    url = f"{str(llm['base_url']).rstrip('/')}/chat/completions"
+    headers = {"Authorization": f"Bearer {llm['api_key']}"}
+    req_body = _llm_chat_payload(llm, messages, with_reasoning=True)
+    # 带 reasoning 时先用较短超时，避免干等到 LLM_TIMEOUT 才降级
+    full_timeout = float(llm.get("timeout") or settings.llm_timeout)
+    first_timeout = min(full_timeout, 60.0) if (
+        "enable_reasoning" in req_body or "thinking" in req_body
+    ) else full_timeout
+
+    try:
+        resp = client.post(url, headers=headers, json=req_body, timeout=first_timeout)
+    except (httpx.ReadTimeout, httpx.ConnectTimeout) as e:
+        if "enable_reasoning" not in req_body and "thinking" not in req_body:
+            raise
+        task_store.append_progress(
+            task_id,
+            f"LLM 降级 · 第 {round_no} 轮",
+            f"带 reasoning 超时（{type(e).__name__}），关闭 reasoning 重试…",
+        )
+        req_body = _llm_chat_payload(llm, messages, with_reasoning=False)
+        return client.post(url, headers=headers, json=req_body, timeout=full_timeout)
+
+    if resp.status_code >= 400 and (
+        "enable_reasoning" in req_body or "thinking" in req_body
+    ):
+        task_store.append_progress(
+            task_id,
+            f"LLM 降级 · 第 {round_no} 轮",
+            f"带 reasoning 返回 HTTP {resp.status_code}，关闭 reasoning 重试…",
+        )
+        req_body = _llm_chat_payload(llm, messages, with_reasoning=False)
+        resp = client.post(url, headers=headers, json=req_body, timeout=full_timeout)
+    return resp
 
 
 def _extract_think_text(msg: dict[str, Any]) -> str:
@@ -435,17 +499,33 @@ def _finalize_agent_result(
     return apply_delivery_soft_floor(out)
 
 
-def _run_llm_react(task_id: str, query: str) -> dict[str, Any]:
+def _run_llm_react(task_id: str, query: str, *, session_id: str = "") -> dict[str, Any]:
     llm = settings.resolve_llm()
-    max_parallel = max(1, int(settings.max_parallel_tool_calls))
+    strategy = load_strategy()
+    knobs = apply_strategy_knobs(strategy)
+    max_parallel = max(1, int(knobs.get("max_parallel_tool_calls") or settings.max_parallel_tool_calls))
+    system_text, evo_meta = _system_prompt(session_id=session_id, query=query)
     task_store.append_progress(
         task_id,
         "启动 Agent",
         f"provider={llm['provider']} · model={llm['model']} · "
-        f"max_parallel_tools={max_parallel}",
+        f"max_parallel_tools={max_parallel} · strategy={strategy.get('id')}",
     )
+    if evo_meta.get("memory_lines") or evo_meta.get("patch_ids"):
+        detail_parts = []
+        if evo_meta.get("tip_classes"):
+            detail_parts.append("教训=" + ",".join(evo_meta["tip_classes"]))
+        if evo_meta.get("patch_ids"):
+            detail_parts.append("策略补丁=" + ",".join(evo_meta["patch_ids"]))
+        lines = evo_meta.get("memory_lines") or []
+        task_store.append_progress(
+            task_id,
+            "进化记忆已注入",
+            " · ".join(detail_parts) if detail_parts else f"{len(lines)} 条记忆",
+            full="\n".join(lines) if lines else None,
+        )
     messages: list[dict[str, Any]] = [
-        {"role": "system", "content": _system_prompt()},
+        {"role": "system", "content": system_text},
         {"role": "user", "content": query},
     ]
     tool_traces: list[dict[str, Any]] = []
@@ -459,23 +539,9 @@ def _run_llm_react(task_id: str, query: str) -> dict[str, Any]:
                 f"LLM 思考 · 第 {round_no} 轮",
                 "等待模型决定：继续查数 / 还是给出结论…",
             )
-            req_body = _llm_chat_payload(llm, messages)
-            resp = client.post(
-                f"{str(llm['base_url']).rstrip('/')}/chat/completions",
-                headers={"Authorization": f"Bearer {llm['api_key']}"},
-                json=req_body,
+            resp = _post_chat_completions(
+                client, llm, messages, task_id=task_id, round_no=round_no
             )
-            # 部分 endpoint 不认 reasoning 字段：降级重试，避免整轮失败
-            if resp.status_code >= 400 and (
-                "enable_reasoning" in req_body or "thinking" in req_body
-            ):
-                req_body.pop("enable_reasoning", None)
-                req_body.pop("thinking", None)
-                resp = client.post(
-                    f"{str(llm['base_url']).rstrip('/')}/chat/completions",
-                    headers={"Authorization": f"Bearer {llm['api_key']}"},
-                    json=req_body,
-                )
             if resp.status_code >= 400:
                 detail = _http_error_detail(resp)
                 raise RuntimeError(
@@ -581,7 +647,7 @@ def _run_llm_react(task_id: str, query: str) -> dict[str, Any]:
     )
 
 
-def run_agent(task_id: str, query: str) -> dict[str, Any]:
+def run_agent(task_id: str, query: str, *, session_id: str = "") -> dict[str, Any]:
     """先 route_input；fixed_slash 不进 LLM；仅 agent_loop 才进 ReAct。"""
     task_store.append_progress(task_id, "收到问题", _clip(query, 200))
     try:
@@ -606,7 +672,7 @@ def run_agent(task_id: str, query: str) -> dict[str, Any]:
             }
         elif path == "agent_loop":
             if settings.llm_enabled:
-                result = _run_llm_react(task_id, query)
+                result = _run_llm_react(task_id, query, session_id=session_id)
             else:
                 result = {
                     "answer": (
@@ -642,6 +708,12 @@ def run_agent(task_id: str, query: str) -> dict[str, Any]:
             )
         attach_evidence_index(result, task_id)
         task_store.finish_task(task_id, result, ok=True)
+        schedule_harvest(
+            task_id=task_id,
+            query=query,
+            result=result,
+            session_id=session_id,
+        )
         return result
     except Exception as e:
         task_store.append_progress(task_id, "失败", _clip(str(e), 400))
@@ -652,6 +724,12 @@ def run_agent(task_id: str, query: str) -> dict[str, Any]:
         }
         attach_evidence_index(err, task_id)
         task_store.finish_task(task_id, err, ok=False)
+        schedule_harvest(
+            task_id=task_id,
+            query=query,
+            result=err,
+            session_id=session_id,
+        )
         return err
 
 

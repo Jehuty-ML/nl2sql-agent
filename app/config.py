@@ -58,6 +58,8 @@ class Settings(BaseSettings):
     llm_api_key: str = ""
     llm_model: str = ""
     llm_timeout: float = 180.0
+    # 是否在兼容端点打开 reasoning/thinking（利于工具规划与 Run Log）；超时/4xx 会降级重试
+    llm_enable_reasoning: bool = True
 
     # 同一步内并行工具上限；1 = 强制串行（便于对照 / 压测降载）
     max_parallel_tool_calls: int = 4
@@ -80,6 +82,13 @@ class Settings(BaseSettings):
     # Phase 8
     spill_threshold_bytes: int = 262144
     query_timeout_seconds: float = 60.0
+
+    # 自进化一期（默认关闭；设 ENABLE_EVOLUTION=true 打开）
+    # 打开后：记忆注入、信号收获、skill 提案；不改模型权重
+    enable_evolution: bool = False
+    active_strategy_id: str = "v1_baseline"
+    evolution_pattern_threshold: int = 3
+    evolution_memory_char_cap: int = 1200
 
     dashscope_api_key: str = ""
     dashscope_base_url: str = ""

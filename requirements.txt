@@ -8,3 +8,4 @@ python-dotenv>=1.0.0
 pytest>=8.0.0
 pandas>=2.0.0
 matplotlib>=3.8.0
+PyYAML>=6.0.0

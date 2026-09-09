@@ -149,13 +149,18 @@ def normalize_dashboard_command(command: str) -> str:
     token = (command or "").strip().split()[0].lower() if (command or "").strip() else ""
     if not token.startswith("/"):
         return ""
-    return SLASH_ALIASES.get(token, token)
+    from app.core.evolution.registry import get_slash_aliases
+
+    aliases = get_slash_aliases()
+    return aliases.get(token, token)
 
 
 def get_dashboard_config(command: str) -> dict[str, Any] | None:
-    """返回看板配置副本；未知指令返回 None。"""
+    """返回看板配置副本；未知指令返回 None（含自进化 overlay）。"""
+    from app.core.evolution.registry import get_dashboard_commands
+
     resolved = normalize_dashboard_command(command)
-    meta = FIXED_DASHBOARD_COMMANDS.get(resolved)
+    meta = get_dashboard_commands().get(resolved)
     if not meta:
         return None
     out = dict(meta)

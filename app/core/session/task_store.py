@@ -158,13 +158,83 @@ def finish_task(task_id: str, final_result: dict[str, Any], ok: bool = True) -> 
         _persist(t)
 
 
+def abort_task(task_id: str, reason: str = "任务已中止") -> dict[str, Any] | None:
+    """把仍在 running/pending 的任务标为 failed（热重载杀线程后的僵尸任务）。"""
+    with _lock:
+        t = _TASKS.get(task_id)
+        if not t:
+            t = _load_from_disk(task_id)
+            if not t:
+                return None
+            _TASKS[task_id] = t
+        if t.get("status") not in ("running", "pending", "accepted"):
+            return json.loads(_dumps(t))
+        t["progress"].append(
+            {"step": "任务中止", "detail": reason, "ts": time.time()}
+        )
+        t["final_result"] = json_safe(
+            {
+                "mode": "aborted",
+                "status": "failed",
+                "answer_md": reason,
+                "error": reason,
+            }
+        )
+        t["status"] = "failed"
+        t["updated_at"] = time.time()
+        _persist(t)
+        return json.loads(_dumps(t))
+
+
+def _maybe_fail_stale(t: dict[str, Any]) -> dict[str, Any]:
+    """无进度更新过久 → 视为 worker 已死（常见于 uvicorn --reload）。"""
+    if t.get("status") not in ("running", "pending", "accepted"):
+        return t
+    try:
+        from app.config import settings
+
+        stale_after = max(120.0, float(settings.llm_timeout) * 2.0 + 60.0)
+    except Exception:
+        stale_after = 420.0
+    # 卡在「进化记忆已注入」且从未进入 LLM 思考：几乎必是热重载杀线程，缩短判定
+    progress = list(t.get("progress") or [])
+    last_step = str((progress[-1] or {}).get("step") or "") if progress else ""
+    steps = {str(p.get("step") or "") for p in progress}
+    if last_step == "进化记忆已注入" and not any(
+        s.startswith("LLM 思考") for s in steps
+    ):
+        stale_after = min(stale_after, 90.0)
+    updated = float(t.get("updated_at") or t.get("created_at") or 0)
+    if updated <= 0 or (time.time() - updated) < stale_after:
+        return t
+    reason = (
+        f"任务超时未更新（>{int(stale_after)}s）。"
+        "常见原因：后端 --reload 热重启打断了后台线程；请用无 --reload 方式启动后重试。"
+    )
+    t["progress"] = list(t.get("progress") or [])
+    t["progress"].append({"step": "任务中止", "detail": reason, "ts": time.time()})
+    t["final_result"] = json_safe(
+        {
+            "mode": "aborted",
+            "status": "failed",
+            "answer_md": reason,
+            "error": reason,
+        }
+    )
+    t["status"] = "failed"
+    t["updated_at"] = time.time()
+    _persist(t)
+    return t
+
+
 def get_task(task_id: str) -> dict[str, Any] | None:
     with _lock:
         t = _TASKS.get(task_id)
-        if t:
-            return json.loads(_dumps(t))
-        disk = _load_from_disk(task_id)
-        if disk:
-            _TASKS[task_id] = disk
-            return json.loads(_dumps(disk))
-        return None
+        if not t:
+            t = _load_from_disk(task_id)
+            if not t:
+                return None
+            _TASKS[task_id] = t
+        t = _maybe_fail_stale(t)
+        _TASKS[task_id] = t
+        return json.loads(_dumps(t))

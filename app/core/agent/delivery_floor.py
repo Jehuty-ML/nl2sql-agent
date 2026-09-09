@@ -5,9 +5,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from app.core.tools.query_tools import is_query_tool
 from app.core.tools.result_shape import GRAIN_AGGREGATE, GRAIN_FIXED
-
-QUERY_TOOLS = frozenset({"get_fixed_analysis", "db_query"})
 
 NOTICE_NO_OK_QUERY = (
     "【系统提示】本次未产生成功的查数结果，结论请谨慎采信；"
@@ -94,7 +93,7 @@ def assess_query_evidence(tool_traces: list[dict[str, Any]] | None) -> dict[str,
         if not isinstance(entry, dict):
             continue
         tool = str(entry.get("tool") or "")
-        if tool not in QUERY_TOOLS:
+        if not is_query_tool(tool):
             continue
         called = True
         ok = _parse_ok_from_trace(entry)

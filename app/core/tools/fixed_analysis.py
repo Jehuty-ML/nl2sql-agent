@@ -6,7 +6,8 @@ import json
 from datetime import date, timedelta
 from typing import Any
 
-from app.bi.fixed_queries import FIXED_QUERIES, render_sql
+from app.bi.fixed_queries import render_sql
+from app.core.evolution.registry import get_fixed_queries
 from app.core.tools.clickhouse_tool import run_query
 from app.core.tools.result_shape import GRAIN_FIXED, enrich_query_result
 
@@ -23,11 +24,12 @@ def run_fixed_analysis(
     start_date: str | None = None,
     end_date: str | None = None,
 ) -> dict[str, Any]:
-    if key not in FIXED_QUERIES:
-        return {"ok": False, "error": f"未知固定分析: {key}", "available": list(FIXED_QUERIES)}
+    queries = get_fixed_queries()
+    if key not in queries:
+        return {"ok": False, "error": f"未知固定分析: {key}", "available": list(queries)}
     if not start_date or not end_date:
         start_date, end_date = default_date_range()
-    meta = FIXED_QUERIES[key]
+    meta = queries[key]
     sql = render_sql(meta["sql"], start_date, end_date)
     result = run_query(sql)
     out: dict[str, Any] = {

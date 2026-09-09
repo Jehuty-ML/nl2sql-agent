@@ -17,4 +17,5 @@ def health():
         "llm_enabled": bool(llm["enabled"]),
         "llm_provider": llm["provider"],
         "llm_model": llm["model"],
+        "evolution_enabled": bool(settings.enable_evolution),
     }
