@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.core.tools.query_tools import is_query_tool
 from app.core.tools.result_shape import GRAIN_AGGREGATE, GRAIN_FIXED
-
-QUERY_TOOLS = frozenset({"get_fixed_analysis", "db_query"})
 
 
 def _is_complete_trace(entry: dict[str, Any]) -> bool:
@@ -29,7 +28,7 @@ def select_display_tables(
     for idx, entry in enumerate(tool_traces or []):
         if not isinstance(entry, dict):
             continue
-        if str(entry.get("tool") or "") not in QUERY_TOOLS:
+        if not is_query_tool(str(entry.get("tool") or "")):
             continue
         if not _is_complete_trace(entry):
             continue
