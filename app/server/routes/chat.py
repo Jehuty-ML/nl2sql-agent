@@ -12,16 +12,24 @@ router = APIRouter(tags=["chat"])
 class ChatRequest(BaseModel):
     query: str = Field(..., min_length=1, description="自然语言分析问题")
     sync: bool = Field(False, description="True 则同步返回结果；默认异步任务")
+    session_id: str = Field("", description="前端会话 id，供短期记忆键")
+    user_id: str = Field("", description="可选用户 id（预留）")
 
 
 @router.post("/chat")
 def chat(req: ChatRequest):
     task_id = task_store.create_task(req.query)
+    session_id = (req.session_id or "").strip()
     if req.sync:
-        result = run_agent(task_id, req.query)
+        result = run_agent(task_id, req.query, session_id=session_id)
         return {"task_id": task_id, "status": "succeeded", "result": result}
 
-    threading.Thread(target=run_agent, args=(task_id, req.query), daemon=True).start()
+    threading.Thread(
+        target=run_agent,
+        args=(task_id, req.query),
+        kwargs={"session_id": session_id},
+        daemon=True,
+    ).start()
     return {
         "task_id": task_id,
         "status": "accepted",

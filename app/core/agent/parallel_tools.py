@@ -55,7 +55,16 @@ def is_concurrency_safe(name: str, args: dict[str, Any] | None = None) -> bool:
     del args  # 预留
     if not name or name in EXCLUSIVE_TOOLS:
         return False
-    return name in PARALLEL_SAFE_TOOLS
+    if name in PARALLEL_SAFE_TOOLS:
+        return True
+    # L4 已 promote 且声明 parallel_safe 的进化工具
+    try:
+        from app.core.evolution.tool_templates import get_promoted_tool_specs
+
+        spec = get_promoted_tool_specs().get(name) or {}
+        return bool(spec.get("parallel_safe"))
+    except Exception:
+        return False
 
 
 def partition_execution_groups(

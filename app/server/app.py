@@ -6,7 +6,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
-from app.server.routes import chat, download, health, reports, task
+from app.server.routes import chat, download, evolution, health, reports, task
 
 ROOT = Path(__file__).resolve().parents[2]
 WEBUI_DIST = ROOT / "webui" / "dist"
@@ -27,6 +27,7 @@ def create_app() -> FastAPI:
     app.include_router(chat.router, prefix="/api/v1")
     app.include_router(task.router, prefix="/api/v1")
     app.include_router(reports.router, prefix="/api/v1")
+    app.include_router(evolution.router, prefix="/api/v1")
 
     if WEBUI_DIST.is_dir() and (WEBUI_DIST / "index.html").exists():
         assets = WEBUI_DIST / "assets"
