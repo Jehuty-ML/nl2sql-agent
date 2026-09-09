@@ -64,6 +64,7 @@ export interface HealthInfo {
   llm_provider?: string;
   llm_model?: string;
   service?: string;
+  evolution_enabled?: boolean;
 }
 
 export interface TaskPayload {
@@ -170,11 +171,18 @@ export async function fetchHealth(): Promise<HealthInfo> {
   return r.json();
 }
 
-export async function startChat(query: string): Promise<{ task_id: string }> {
+export async function startChat(
+  query: string,
+  sessionId?: string
+): Promise<{ task_id: string }> {
   const r = await fetch("/api/v1/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ query, sync: false }),
+    body: JSON.stringify({
+      query,
+      sync: false,
+      session_id: sessionId || "",
+    }),
   });
   if (!r.ok) throw new Error("chat failed");
   return r.json();
