@@ -125,12 +125,62 @@ def assess_query_evidence(tool_traces: list[dict[str, Any]] | None) -> dict[str,
     }
 
 
-def apply_delivery_soft_floor(result: dict[str, Any]) -> dict[str, Any]:
+def _prepend_notice(result: dict[str, Any], notice: str) -> None:
+    answer = str(result.get("answer") or "")
+    if notice not in answer:
+        result["answer"] = f"{notice}\n\n{answer}".strip() if answer else notice
+    result["status"] = "partial"
+    prev = str(result.get("delivery_notice") or "")
+    if prev and notice not in prev and prev not in notice:
+        result["delivery_notice"] = f"{notice}\n{prev}"
+    else:
+        result["delivery_notice"] = notice
+
+
+def apply_calendar_demo_gate(
+    result: dict[str, Any],
+    *,
+    user_query: str = "",
+) -> dict[str, Any]:
+    """今天超出 Demo 窗且本轮有查数、用户未 pin Demo 内日期 → partial + 明示可用区间。"""
+    from app.core.agent.demo_calendar import assess_calendar_demo_gate
+
+    q = (user_query or result.get("user_query") or "").strip()
+    info = assess_calendar_demo_gate(
+        q,
+        tool_traces=result.get("tool_traces"),
+    )
+    if not info or not info.get("out_of_range"):
+        return result
+
+    notice = str(info["notice"])
+    _prepend_notice(result, notice)
+    result["delivery_gate"] = "calendar_out_of_demo"
+    result["calendar_assessment"] = {
+        "out_of_range": True,
+        "requested_range": info.get("requested_range"),
+        "available_range": info.get("available_range"),
+        "intent_label": info.get("intent_label")
+        or (info.get("intent") or {}).get("label"),
+        "reason": info.get("reason"),
+        "today": info.get("today"),
+    }
+    return result
+
+
+def apply_delivery_soft_floor(
+    result: dict[str, Any],
+    *,
+    user_query: str = "",
+) -> dict[str, Any]:
     """就地增强 Agent 终态：有异常则加 notice / partial，保留 answer 与 tool_traces。"""
     if not isinstance(result, dict):
         return result
     if result.get("mode") != "agent_loop":
         return result
+
+    if user_query:
+        result["user_query"] = user_query
 
     assessment = assess_query_evidence(result.get("tool_traces"))
     result["delivery_assessment"] = assessment
@@ -140,7 +190,8 @@ def apply_delivery_soft_floor(result: dict[str, Any]) -> dict[str, Any]:
         result.setdefault("status", "success")
         from app.core.agent.numeric_audit import apply_numeric_audit
 
-        return apply_numeric_audit(result)
+        apply_numeric_audit(result)
+        return apply_calendar_demo_gate(result, user_query=user_query)
 
     if reason == "empty_rows":
         notice = NOTICE_EMPTY_ROWS
@@ -149,11 +200,6 @@ def apply_delivery_soft_floor(result: dict[str, Any]) -> dict[str, Any]:
     else:
         notice = NOTICE_NO_OK_QUERY
 
-    answer = str(result.get("answer") or "")
-    if notice not in answer:
-        result["answer"] = f"{notice}\n\n{answer}".strip() if answer else notice
-
-    result["status"] = "partial"
-    result["delivery_notice"] = notice
+    _prepend_notice(result, notice)
     result["delivery_gate"] = reason
-    return result
+    return apply_calendar_demo_gate(result, user_query=user_query)

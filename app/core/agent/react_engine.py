@@ -480,6 +480,8 @@ def _finalize_agent_result(
     tool_traces: list[dict[str, Any]],
     llm: dict[str, Any],
     evidence_path: str,
+    *,
+    user_query: str = "",
 ) -> dict[str, Any]:
     data_tables = select_display_tables(tool_traces)
     out: dict[str, Any] = {
@@ -496,7 +498,7 @@ def _finalize_agent_result(
     primary = select_primary_table(tool_traces)
     if primary:
         out["data"] = primary
-    return apply_delivery_soft_floor(out)
+    return apply_delivery_soft_floor(out, user_query=user_query)
 
 
 def _run_llm_react(task_id: str, query: str, *, session_id: str = "") -> dict[str, Any]:
@@ -593,7 +595,9 @@ def _run_llm_react(task_id: str, query: str, *, session_id: str = "") -> dict[st
                         "model": llm["model"],
                     },
                 )
-                return _finalize_agent_result(answer, tool_traces, llm, evidence)
+                return _finalize_agent_result(
+                    answer, tool_traces, llm, evidence, user_query=query
+                )
 
             pending = parse_tool_calls(tool_calls, round_i=round_i)
             names = [c.name for c in pending]
@@ -644,6 +648,7 @@ def _run_llm_react(task_id: str, query: str, *, session_id: str = "") -> dict[st
         tool_traces,
         llm,
         evidence,
+        user_query=query,
     )
 
 
